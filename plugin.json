@@ -1,0 +1,124 @@
+{
+	"id": "nodebb-plugin-meilisearch-r",
+	"name": "NodeBB meilisearch refactored",
+	"description": "(Compatible with 4.14.X and refactored from original meilisearch plugin) A plugin for integrating MeiliSearch with NodeBB",
+	"url": "https://github.com/jasonwch/nodebb-plugin-meilisearch-r",
+	"library": "./library.js",
+	"hooks": [
+		{
+			"hook": "static:app.load",
+			"method": "init"
+		},
+		{
+			"hook": "static:api.routes",
+			"method": "addRoutes"
+		},
+		{
+			"hook": "filter:admin.header.build",
+			"method": "addAdminNavigation"
+		},
+		{
+			"hook": "filter:admin.notices",
+			"method": "getNotices"
+		},
+		{
+			"hook": "action:post.save",
+			"method": "indexPost"
+		},
+		{
+			"hook": "action:post.edit",
+			"method": "indexPost"
+		},
+		{
+			"hook": "action:post.move",
+			"method": "indexPost"
+		},
+		{
+			"hook": "action:post.restore",
+			"method": "indexPost"
+		},
+		{
+			"hook": "action:post.delete",
+			"method": "deindexPost"
+		},
+		{
+			"hook": "action:post.changeOwner",
+			"method": "changePostOwner"
+		},
+		{
+			"hook": "action:posts.purge",
+			"method": "deindexPostsPurge"
+		},
+		{
+			"hook": "action:topic.post",
+			"method": "indexTopic"
+		},
+		{
+			"hook": "action:topic.save",
+			"method": "indexTopic"
+		},
+		{
+			"hook": "action:topic.restore",
+			"method": "restoreTopic"
+		},
+		{
+			"hook": "action:topic.edit",
+			"method": "indexTopic"
+		},
+		{
+			"hook": "action:topic.move",
+			"method": "indexTopic"
+		},
+		{
+			"hook": "action:topic.merge",
+			"method": "onTopicMerge"
+		},
+		{
+			"hook": "action:topic.delete",
+			"method": "deindexTopic"
+		},
+		{
+			"hook": "action:topic.changeOwner",
+			"method": "changeTopicOwner"
+		},
+		{
+			"hook": "action:topics.purge",
+			"method": "deindexTopicsPurge"
+		},
+		{
+			"hook": "action:topics.scheduled.notify",
+			"method": "onScheduledPublish"
+		},
+		{
+			"hook": "filter:search.query",
+			"method": "search"
+		},
+		{
+			"hook": "filter:topic.search",
+			"method": "search"
+		},
+		{
+			"hook": "filter:settings.set",
+			"method": "saveSettings"
+		}
+	],
+	"staticDirs": {
+		"static": "./static"
+	},
+	"scss": [
+		"static/scss/meilisearch.scss"
+	],
+	"less": [
+		"static/less/meilisearch.less"
+	],
+	"modules": {
+		"../admin/plugins/meilisearch.js": "./static/lib/admin.js"
+	},
+	"scripts": [
+		"static/lib/client/quick-search.js"
+	],
+	"templates": "static/templates",
+	"settingsRoute": "/admin/plugins/meilisearch",
+	"languages": "static/languages",
+	"defaultLang": "en-GB"
+}

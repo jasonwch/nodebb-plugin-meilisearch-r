@@ -1,0 +1,104 @@
+/* Place any SCSS in here */
+
+.force-reindex-container {
+	margin-top: 0;
+}
+
+.reindex-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 1rem;
+	width: 100%;
+
+	#reindex {
+		flex: 0 0 auto;
+	}
+
+	@media (max-width: 767px) {
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+}
+
+.reindex-progress-container {
+	transition: display 0.5s;
+}
+.reindex-progress-bar {
+	transition: width 0.1s;
+}
+
+.last-reindex-title {
+	margin-top: 0;
+	margin-bottom: 8px;
+	font-size: 14px;
+	font-weight: bold;
+}
+
+.last-reindex-table {
+	margin-bottom: 0;
+	font-size: 13px;
+
+	th {
+		text-align: right;
+		vertical-align: middle;
+	}
+
+	th, td {
+		word-break: break-word;
+	}
+
+	.label {
+		font-size: 85%;
+	}
+}
+
+
+
+.meilisearch-quick-search-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.25rem 0.5rem;
+	margin-bottom: 0.25rem;
+	border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+
+	strong {
+		font-size: 0.9rem;
+		font-weight: bold;
+	}
+}
+
+.meilisearch-quick-search-esc {
+	position: absolute;
+	top: 0.35rem;
+	right: 0.5rem;
+	font-size: 0.7rem;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	padding: 0 0.35rem;
+	line-height: 1.4;
+	border: 1px solid var(--bs-border-color, #dee2e6);
+	border-radius: 0.25rem;
+	color: var(--bs-secondary-color, #6c757d);
+	background: var(--bs-body-bg, #fff);
+	user-select: none;
+}
+
+/* Cap dropdown to roughly 3 result rows so it never overflows past the
+   browser bottom bar when the composer is in half-screen mode. Activated
+   only on composer dropdowns (data-meilisearch-decorated="1" set by
+   static/lib/client/quick-search.js). */
+.quick-search-container[data-meilisearch-decorated="1"] {
+	max-height: 320px;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
+.quick-search-container[data-meilisearch-decorated="1"] .quick-search-results {
+	max-height: 260px !important;
+	overflow: auto;
+	flex: 1 1 auto;
+}

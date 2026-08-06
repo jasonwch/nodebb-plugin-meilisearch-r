@@ -1,0 +1,38 @@
+{
+	"name": "nodebb-plugin-meilisearch-r",
+	"version": "1.0.1",
+	"description": "(Compatible with 4.14.X and refactored from original meilisearch plugin) A plugin for integrating MeiliSearch with NodeBB",
+	"author": {
+		"name": "JasonCH",
+		"email": "jasonwch@msn.com"
+	},
+	"contributors": [
+		{
+			"name": "oplik0",
+			"email": "j.blizniuk@samsung.com",
+			"url": "https://github.com/oplik0/nodebb-plugin-meilisearch"
+		}
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/jasonwch/nodebb-plugin-meilisearch-r.git"
+	},
+	"bugs": {
+		"url": "https://github.com/jasonwch/nodebb-plugin-meilisearch-r/issues"
+	},
+	"license": "MIT",
+	"main": "library.js",
+	"scripts": {},
+	"keywords": [
+		"nodebb",
+		"plugin",
+		"meilisearch",
+		"shell"
+	],
+	"nbbpm": {
+		"compatibility": "^4.14.0"
+	},
+	"dependencies": {
+		"meilisearch": "^0.59.0"
+	}
+}
