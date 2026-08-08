@@ -16,10 +16,13 @@ A plugin for integrating MeiliSearch with NodeBB (This plugin is inspired and re
 
 \
 <ins>**Composer suggestions**</ins>
+\
 ![composer window](demo/composer.png)
 
 <ins>**Global search**</ins>
+\
 ![global search](demo/globalsearch.png)
 
 <ins>**ACP**</ins>
+\
 ![ACP page](demo/acp.png)
