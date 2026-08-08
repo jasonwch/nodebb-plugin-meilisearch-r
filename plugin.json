@@ -1,7 +1,7 @@
 {
 	"id": "nodebb-plugin-meilisearch-r",
 	"name": "NodeBB meilisearch refactored",
-	"description": "(Compatible with 4.14.X and refactored from original meilisearch plugin) A plugin for integrating MeiliSearch with NodeBB",
+	"description": "Enhanced plugin for integrating MeiliSearch with NodeBB",
 	"url": "https://github.com/jasonwch/nodebb-plugin-meilisearch-r",
 	"library": "./library.js",
 	"hooks": [
@@ -90,6 +90,22 @@
 			"method": "onScheduledPublish"
 		},
 		{
+			"hook": "action:messaging.save",
+			"method": "indexMessage"
+		},
+		{
+			"hook": "action:messaging.edit",
+			"method": "indexMessage"
+		},
+		{
+			"hook": "action:messaging.restore",
+			"method": "indexMessage"
+		},
+		{
+			"hook": "action:messaging.delete",
+			"method": "deindexMessage"
+		},
+		{
 			"hook": "filter:search.query",
 			"method": "search"
 		},
@@ -98,8 +114,16 @@
 			"method": "search"
 		},
 		{
+			"hook": "filter:messaging.searchMessages",
+			"method": "searchMessages"
+		},
+		{
 			"hook": "filter:settings.set",
 			"method": "saveSettings"
+		},
+		{
+			"hook": "filter:config.get",
+			"method": "addConfig"
 		}
 	],
 	"staticDirs": {
@@ -115,7 +139,8 @@
 		"../admin/plugins/meilisearch.js": "./static/lib/admin.js"
 	},
 	"scripts": [
-		"static/lib/client/quick-search.js"
+		"static/lib/client/quick-search.js",
+		"static/lib/chat-search-global.js"
 	],
 	"templates": "static/templates",
 	"settingsRoute": "/admin/plugins/meilisearch",

@@ -7,11 +7,19 @@ A plugin for integrating MeiliSearch with NodeBB (This plugin is inspired and re
 
 - Refactored for NodeBB 4.14 up.
 - Updated to Meilisearch JS API 0.59.
-- Fixed admin layout panel.
+- ACP panel comply to NodeBB standard.
 - Reindex / Force reindex all working as expected
 - Composer suggestion optimization.
 - Bug fixes from existing plugin.
+- Chat search support
+- Global chat search support (will auto detect and override ```nodebb-plugin-chat-search```)
 
 \
-![admin page](demo/admin.png)
+<ins>**Composer suggestions**</ins>
 ![composer window](demo/composer.png)
+
+<ins>**Global search**</ins>
+![global search](demo/globalsearch.png)
+
+<ins>**ACP**</ins>
+![ACP page](demo/acp.png)

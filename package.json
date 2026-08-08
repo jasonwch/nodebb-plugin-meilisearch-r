@@ -1,7 +1,7 @@
 {
 	"name": "@jasonwch/nodebb-plugin-meilisearch-r",
-	"version": "1.0.2",
-	"description": "(Compatible with 4.14.X and refactored from original meilisearch plugin) A plugin for integrating MeiliSearch with NodeBB",
+	"version": "1.1.0",
+	"description": "Enhanced plugin for integrating MeiliSearch with NodeBB",
 	"author": {
 		"name": "JasonCH",
 		"email": "jasonwch@msn.com"
@@ -26,8 +26,9 @@
 	"keywords": [
 		"nodebb",
 		"plugin",
-		"meilisearch",
-		"shell"
+		"chat",
+		"search",
+		"meilisearch"
 	],
 	"nbbpm": {
 		"compatibility": "^4.14.0"

@@ -7,6 +7,9 @@ const routeHelpers = nodebb.require('./src/routes/helpers');
 const settings = nodebb.require('./src/meta/settings');
 const Posts = nodebb.require('./src/posts');
 const Topics = nodebb.require('./src/topics');
+const Messaging = nodebb.require('./src/messaging');
+const user = nodebb.require('./src/user');
+const translator = nodebb.require('./src/translator');
 const batch = nodebb.require('./src/batch');
 const Sockets = nodebb.require('./src/socket.io');
 const pubsub = nodebb.require('./src/pubsub');
@@ -26,7 +29,9 @@ const DRAIN_MAX = 500;
 const REINDEX_LOCK_KEY = 'plugin:meilisearch:reindex:lock';
 const REINDEX_LOCK_TTL = 3600;
 const LOCK_REFRESH_INTERVAL = 5 * 60 * 1000;
-const REPLAY_OPS = ['indexPost', 'deindexPost', 'indexTopic', 'deindexTopic', 'deindexPostsPurge', 'deindexTopicsPurge', 'reindexTopicPosts', 'deindexTopicPosts', 'restoreTopic', 'changePostOwner', 'changeTopicOwner', 'onTopicMerge', 'onScheduledPublish'];
+const REPLAY_OPS = ['indexPost', 'deindexPost', 'indexTopic', 'deindexTopic', 'deindexPostsPurge', 'deindexTopicsPurge', 'reindexTopicPosts', 'deindexTopicPosts', 'restoreTopic', 'changePostOwner', 'changeTopicOwner', 'onTopicMerge', 'onScheduledPublish', 'indexMessage', 'deindexMessage'];
+const GLOBAL_CHAT_SEARCH_LIMIT = 200;
+const GLOBAL_CHAT_SEARCH_FETCH = 300;
 
 const emitProgress = _.throttle(() => {
 	pubsub.publish('meilisearch:reindex', plugin.indexing);
@@ -39,6 +44,10 @@ plugin.indexing = {
 		current: null,
 	},
 	post_progress: {
+		total: null,
+		current: null,
+	},
+	message_progress: {
 		total: null,
 		current: null,
 	},
@@ -71,13 +80,18 @@ plugin.defaults = {
 	synonyms: [],
 	healthCheckInterval: 60,
 	searchMinTermLength: 2,
+	globalChatSearchEnabled: 'on',
 	lastReindexResult: {
 		success: false,
 		finishedAt: null,
 		topic_progress: { current: null, total: null },
 		post_progress: { current: null, total: null },
+		message_progress: { current: null, total: null },
 		skippedDeletedTopics: 0,
 		skippedDeletedPosts: 0,
+		skippedDeletedMessages: 0,
+		skippedSystemMessages: 0,
+		skippedOrphanMessages: 0,
 		error: null,
 	},
 };
@@ -115,23 +129,241 @@ plugin.init = async function (params) {
 		const topicCurrent = Number(plugin.indexing.topic_progress.current) || 0;
 		const postTotal = Number(plugin.indexing.post_progress.total) || 0;
 		const postCurrent = Number(plugin.indexing.post_progress.current) || 0;
+		const messageTotal = Number(plugin.indexing.message_progress.total) || 0;
+		const messageCurrent = Number(plugin.indexing.message_progress.current) || 0;
 		const topicPercent = topicTotal > 0 ? Math.min(100, Math.max(0, Math.round(100 * topicCurrent / topicTotal))) : 0;
 		const postPercent = postTotal > 0 ? Math.min(100, Math.max(0, Math.round(100 * postCurrent / postTotal))) : 0;
+		const messagePercent = messageTotal > 0 ? Math.min(100, Math.max(0, Math.round(100 * messageCurrent / messageTotal))) : 0;
 		const lastReindexResult = await settings.getOne(plugin.id, 'lastReindexResult') || {};
 		res.render('admin/plugins/meilisearch', {
+			title: '[[meilisearch:admin.settings]]',
 			indexing: plugin.indexing,
 			topicPercent,
 			postPercent,
+			messagePercent,
 			lastReindexResult,
 		});
 	});
 	await settings.setOnEmpty(plugin.id, plugin.defaults);
 	await plugin.prepareSearch();
+	await plugin.ensureChatMessageIndex();
 	plugin.patchTopicsSearch();
 	plugin.initialized = true;
 };
 
-// Guard core Topics.search against empty-term throws (core bug: in:topic-<tid> + trailing space yields empty cleanedTerm).
+// Ensure the chat_message index + filterable attributes exist, independent of reindex state.
+// prepareSearch() returns early when `indexed=true`, so updateIndexSettings (which configures
+// chat_message) is skipped on normal restarts — but indexMessage auto-creates the index via
+// document add, leaving filterableAttributes empty. Without roomId/uid filterable, searchMessages
+// would error on its filter clause. Idempotent + cheap (2 calls, settings deduped by Meilisearch).
+plugin.ensureChatMessageIndex = async function () {
+	if (!plugin.client) return;
+	try {
+		await ensureIndex('chat_message', 'mid');
+		await plugin.client.index('chat_message').updateFilterableAttributes(['roomId', 'uid', 'timestamp']);
+	} catch (err) {
+		winston.error(`[plugin/meilisearch] ensureChatMessageIndex failed: ${err.message}`);
+		plugin.healthy = false;
+	}
+};
+
+// Global chat search: queries the chat_message Meilisearch index across ALL rooms
+// the user belongs to (unlike the per-room searchMessages which is scoped to one roomId).
+// Uses 1.5× over-fetch (300) to compensate for join-timestamp/deleted-message filtering,
+// then renders only surviving hits through NodeBB's getMessagesData pipeline.
+// Results are sorted by message timestamp (newest first).
+plugin.chatSearchGlobal = async function (socket, data) {
+	data = data || {};
+	if (!socket.uid) throw new Error('Not logged in');
+	const chatSearchEnabled = await settings.getOne(plugin.id, 'globalChatSearchEnabled');
+	if (chatSearchEnabled === false || chatSearchEnabled === 'off' || chatSearchEnabled === 'false') {
+		return [];
+	}
+	if (!plugin.healthy && !(await plugin.checkHealth())) {
+		throw new Error('MeiliSearch is not healthy');
+	}
+	const targetUid = socket.uid;
+	const userSettings = await user.getSettings(socket.uid);
+	const userLang = userSettings.userLang || 'en-GB';
+
+	const query = String(data.query || '').trim();
+	if (!query) {
+		return [];
+	}
+
+	let roomIds = await db.getSortedSetRevRange('uid:' + targetUid + ':chat:rooms', 0, -1);
+	// Chunked membership check with event loop yields to prevent blocking on large room lists.
+	// Each chunk fires hooks synchronously inside Promise.all (~0.6ms per 100 rooms);
+	// setImmediate between chunks lets other users' I/O callbacks run.
+	const MEMBERSHIP_CHUNK_SIZE = 100;
+	let inRoom = [];
+	for (let i = 0; i < roomIds.length; i += MEMBERSHIP_CHUNK_SIZE) {
+		const chunk = roomIds.slice(i, i + MEMBERSHIP_CHUNK_SIZE);
+		inRoom = inRoom.concat(await Messaging.isUserInRoom(targetUid, chunk));
+		await new Promise(resolve => setImmediate(resolve));
+	}
+	roomIds = roomIds.filter((roomId, idx) => inRoom[idx]);
+	if (!roomIds.length) {
+		return [];
+	}
+
+	const minTermLength = await resolveMinTermLength();
+	if (!query.split(' ').some(word => word.length >= minTermLength)) {
+		return [];
+	}
+
+	const filter = [roomIds.map(rid => `roomId = ${parseInt(rid, 10)}`)];
+	winston.debug(`[plugin/meilisearch] Global chat search for "${query}" in ${roomIds.length} rooms`);
+	const result = await plugin.client.index('chat_message').search(query, {
+		attributesToRetrieve: ['mid', 'roomId', 'uid', 'timestamp'],
+		limit: GLOBAL_CHAT_SEARCH_FETCH,
+		filter: filter,
+		matchingStrategy: 'last',
+	});
+
+	if (!result.hits || !result.hits.length) {
+		return [];
+	}
+
+	// Batch-fetch room public flags (1 query) + join timestamps for private rooms (N queries).
+	const hitRoomIds = [...new Set(result.hits.map(h => parseInt(h.roomId, 10)))];
+	const roomData = await db.getObjectsFields(
+		hitRoomIds.map(rid => `chat:room:${rid}`),
+		['public'],
+	);
+	const roomIsPublic = {};
+	hitRoomIds.forEach((rid, i) => {
+		roomIsPublic[rid] = parseInt(roomData[i] && roomData[i].public, 10) === 1;
+	});
+
+	const privateRoomIds = hitRoomIds.filter(rid => !roomIsPublic[rid]);
+	const joinTimestamps = {};
+	if (privateRoomIds.length) {
+		const scores = await Promise.all(
+			privateRoomIds.map(rid => db.sortedSetScore(`chat:room:${rid}:uids`, targetUid)),
+		);
+		privateRoomIds.forEach((rid, i) => {
+			joinTimestamps[rid] = scores[i] || 0;
+		});
+	}
+
+	// Filter + sort by timestamp (newest first) + slice to limit.
+	const visibleHits = result.hits
+		.filter((hit) => {
+			const rid = parseInt(hit.roomId, 10);
+			if (roomIsPublic[rid]) return true;
+			const ts = parseInt(hit.timestamp, 10);
+			return ts >= (joinTimestamps[rid] || 0);
+		})
+		.sort((a, b) => parseInt(b.timestamp, 10) - parseInt(a.timestamp, 10))
+		.slice(0, GLOBAL_CHAT_SEARCH_LIMIT);
+
+	if (!visibleHits.length) {
+		return [];
+	}
+
+	// Group by room for decoration, then reassemble in timestamp order via mid→message map.
+	const hitsByRoom = {};
+	visibleHits.forEach((hit) => {
+		const rid = parseInt(hit.roomId, 10);
+		if (!hitsByRoom[rid]) hitsByRoom[rid] = [];
+		hitsByRoom[rid].push(hit.mid);
+	});
+
+	// Process rooms in bounded-concurrency batches (10 at a time) to avoid
+	// saturating the MongoDB connection pool (maxPoolSize: 20).
+	const DECORATION_BATCH_SIZE = 10;
+	const roomIdsWithHits = Object.keys(hitsByRoom);
+	const decoratedMap = {};
+	for (let i = 0; i < roomIdsWithHits.length; i += DECORATION_BATCH_SIZE) {
+		const batch = roomIdsWithHits.slice(i, i + DECORATION_BATCH_SIZE);
+		const batchResults = await Promise.all(batch.map(async (ridStr) => {
+			const rid = parseInt(ridStr, 10);
+			const mids = hitsByRoom[rid];
+			const messages = await Messaging.getMessagesData(mids, targetUid, rid, false);
+			if (!messages || !messages.length) return [];
+			return decorateRoomMatches({ matches: messages, roomId: rid, targetUid, userLang });
+		}));
+		batchResults.forEach((decorated) => {
+			decorated.forEach((msg) => {
+				const mid = msg.mid || msg.messageId;
+				if (mid) decoratedMap[mid] = msg;
+			});
+		});
+	}
+
+	// Reassemble in pre-sorted timestamp order.
+	const allResults = [];
+	for (const hit of visibleHits) {
+		const msg = decoratedMap[hit.mid];
+		if (msg) allResults.push(msg);
+	}
+
+	return allResults;
+};
+
+// Register socket handler at module level per NodeBB 4.14.x convention
+// (src/socket.io/plugins.js docs: require and add listeners at load time).
+// The health check inside chatSearchGlobal guards against calls before init completes.
+const socketPlugins = nodebb.require('./src/socket.io/plugins');
+socketPlugins.meilisearch = socketPlugins.meilisearch || {};
+socketPlugins.meilisearch.chatSearchGlobal = plugin.chatSearchGlobal;
+
+// Expose globalChatSearchEnabled to client config (standard filter:config.get pattern,
+// same as nodebb-plugin-emoji's emojiCustomFirst).
+plugin.addConfig = async function (config) {
+	const enabled = await settings.getOne(plugin.id, 'globalChatSearchEnabled');
+	config.globalChatSearchEnabled = enabled !== false && enabled !== 'off' && enabled !== 'false';
+	return config;
+};
+
+// Attaches room name, participants, and sender metadata to each message for the client UI.
+async function decorateRoomMatches({ matches, roomId, targetUid, userLang }) {
+	const uids = await Messaging.getUidsInRoom(roomId, 0, -1);
+	const usersData = await user.getUsersFields(uids, ['uid', 'username', 'picture', 'icon:text', 'icon:bgColor']);
+	const otherUsers = usersData.filter(u => parseInt(u.uid, 10) !== parseInt(targetUid, 10));
+
+	let displayName = '';
+	if (otherUsers.length === 0) {
+		displayName = await translateMeili(userLang, 'chatSearch.room.self-chat');
+	} else if (otherUsers.length <= 2) {
+		displayName = otherUsers.map(u => u.username).join(', ');
+	} else {
+		const firstTwo = otherUsers.slice(0, 2).map(u => u.username).join(', ');
+		const remaining = otherUsers.length - 2;
+		displayName = await translateMeili(userLang, 'chatSearch.room.and-more-users', firstTwo, remaining);
+	}
+
+	const roomData = await Messaging.getRoomData(roomId);
+	const roomName = (roomData && roomData.roomName) || displayName;
+
+	// Batch-fetch sorted-set ranks for all matched mids.
+	// Core's /message/:mid redirect drops the index segment when rank is 0 (falsy),
+	// so we attach the rank here and construct the chat URL client-side with rank+1
+	// to always include a truthy 1-based index segment.
+	const midsForRank = matches.map(m => m.mid || m.messageId);
+	const ranks = await db.sortedSetRanks(`chat:room:${roomId}:mids`, midsForRank);
+
+	matches.forEach((m, i) => {
+		if (!m.mid && m.messageId) m.mid = m.messageId;
+		if (!m.roomId) m.roomId = roomId;
+		if (!m.user || !m.user.username) {
+			m.user = m.fromUser || { username: 'Unknown', 'icon:text': '?', 'icon:bgColor': 'var(--bs-tertiary-bg)' };
+		}
+		m.roomName = roomName;
+		m.participants = otherUsers.length ? [otherUsers[0]] : [];
+		m.rank = ranks[i];
+	});
+
+	return matches;
+}
+
+async function translateMeili(language, key, ...args) {
+	return await translator.translate(
+		translator.compile(`meilisearch:${key}`, ...args),
+		language,
+	);
+}
 plugin.patchTopicsSearch = function () {
 	if (Topics.__meiliOriginalSearch) { return; }
 	Topics.__meiliOriginalSearch = Topics.search;
@@ -154,11 +386,14 @@ plugin.prepareSearch = async function (data, connectionChanged = false) {
 		? Math.min(Math.max(intervalRaw, 10), 3600)
 		: 60;
 	plugin.healthCheckTask = setInterval(plugin.checkHealth, intervalSeconds * 1000);
+	// #15: Always sync plugin.healthy on (re)connect — otherwise it stays false from
+	// initialization until the first setInterval tick, causing stale "MeiliSearch
+	// Unreachable" warnings on save during the startup window (MS online, flag stale).
+	await plugin.checkHealth();
 	// #14: Don't auto-reindex after a failed reindex unless connection settings changed.
 	const indexed = await settings.getOne(plugin.id, 'indexed');
 	if (indexed) return;
-	const healthy = await plugin.checkHealth();
-	if (!healthy || plugin.initializingOnAnotherInstance) return;
+	if (!plugin.healthy || plugin.initializingOnAnotherInstance) return;
 	const lastResult = await settings.getOne(plugin.id, 'lastReindexResult') || {};
 	const allowAutoReindex = connectionChanged || lastResult.success !== false;
 	if (!allowAutoReindex) {
@@ -290,6 +525,7 @@ plugin.getNotices = async function (notices) {
 plugin.updateIndexSettings = async (data) => {
 	await ensureIndex('post', 'pid');
 	await ensureIndex('topic', 'tid');
+	await ensureIndex('chat_message', 'mid');
 	data = {
 		maxDocuments: parseInt(data?.maxDocuments || await settings.getOne(plugin.id, 'maxDocuments') || 500, 10),
 		rankingRules: (data?.rankingRules || await settings.getOne(plugin.id, 'rankingRules'))?.map(value => value.rule),
@@ -354,7 +590,26 @@ plugin.updateIndexSettings = async (data) => {
 		},
 		synonyms: data.synonyms,
 	});
-	return [postTask, topicTask];
+	const messageTask = await plugin.client.index('chat_message').updateSettings({
+		filterableAttributes: ['roomId', 'uid', 'timestamp'],
+		sortableAttributes: ['timestamp'],
+		searchableAttributes: ['content'],
+		pagination: {
+			maxTotalHits: data.maxDocuments,
+		},
+		rankingRules: data.rankingRules,
+		stopWords: data.stopWords,
+		typoTolerance: {
+			enabled: data.typoTolerance,
+			minWordSizeForTypos: {
+				oneTypo: data.typoToleranceMinWordSizeOneTypo,
+				twoTypos: data.typoToleranceMinWordSizeTwoTypos,
+			},
+			disableOnWords: data.typoToleranceDisableOnWords,
+		},
+		synonyms: data.synonyms,
+	});
+	return [postTask, topicTask, messageTask];
 };
 
 plugin.reindex = async function (force = false) {
@@ -372,9 +627,13 @@ plugin.reindex = async function (force = false) {
 			current: 0,
 			total: 0,
 		},
+		message_progress: {
+			current: 0,
+			total: 0,
+		},
 	};
 	emitProgress();
-	winston.info(`[plugin/meilisearch] Indexing posts and topics${force ? ' (forced)' : ''}`);
+	winston.info(`[plugin/meilisearch] Indexing posts, topics and chat messages${force ? ' (forced)' : ''}`);
 	plugin._reindexPromise = runReindex(force);
 	return plugin._reindexPromise;
 };
@@ -411,6 +670,9 @@ async function runReindex(force) {
 	let errorMsg = null;
 	let skippedDeletedTopics = 0;
 	let skippedDeletedPosts = 0;
+	let skippedDeletedMessages = 0;
+	let skippedSystemMessages = 0;
+	let skippedOrphanMessages = 0;
 	const locked = await acquireReindexLock();
 	if (!locked) {
 		plugin.indexing.running = false;
@@ -423,14 +685,18 @@ async function runReindex(force) {
 			plugin.reindexingForced = true;
 			const postTask = await plugin.client.index('post').deleteAllDocuments();
 			const topicTask = await plugin.client.index('topic').deleteAllDocuments();
-			await plugin.client.tasks.waitForTask(postTask.taskUid);
-			await plugin.client.tasks.waitForTask(topicTask.taskUid);
+			const messageTask = await plugin.client.index('chat_message').deleteAllDocuments();
+			await plugin.client.tasks.waitForTask(postTask.taskUid, { timeout: 600000, interval: 200 });
+			await plugin.client.tasks.waitForTask(topicTask.taskUid, { timeout: 600000, interval: 200 });
+			await plugin.client.tasks.waitForTask(messageTask.taskUid, { timeout: 600000, interval: 200 });
 		}
-		const [postSettingsTask, topicSettingsTask] = await plugin.updateIndexSettings();
-		await plugin.client.tasks.waitForTask(postSettingsTask.taskUid);
-		await plugin.client.tasks.waitForTask(topicSettingsTask.taskUid);
+		const [postSettingsTask, topicSettingsTask, messageSettingsTask] = await plugin.updateIndexSettings();
+		await plugin.client.tasks.waitForTask(postSettingsTask.taskUid, { timeout: 600000, interval: 200 });
+		await plugin.client.tasks.waitForTask(topicSettingsTask.taskUid, { timeout: 600000, interval: 200 });
+		await plugin.client.tasks.waitForTask(messageSettingsTask.taskUid, { timeout: 600000, interval: 200 });
 		plugin.indexing.topic_progress.total = await db.sortedSetCard('topics:tid') || 0;
 		plugin.indexing.post_progress.total = await db.sortedSetCard('posts:pid') || 0;
+		plugin.indexing.message_progress.total = await db.sortedSetCard('messages:mid') || 0;
 		emitProgress();
 		await Promise.all([
 			batch.processSortedSet(
@@ -513,10 +779,64 @@ async function runReindex(force) {
 					batch: REINDEX_BATCH_SIZE,
 					progress: plugin.indexing.post_progress,
 				},
-			),
-		]);
+		),
+	]);
+		// Reindex chat messages SEQUENTIALLY after topics+posts (keeps Meilisearch enqueue rate bounded).
+		// Option B: cross-check each batch's roomIds against existing rooms and deindex orphan messages
+		// whose room was deleted via admin (messaging.deleteRooms fires no message hook and leaves
+		// message:${mid} objects + messages:mid entries, so they would otherwise be re-indexed as orphans).
+		await batch.processSortedSet(
+			'messages:mid',
+			async (mids) => {
+				plugin.indexing.message_progress.current += mids.length;
+				emitProgress();
+				const messages = await Messaging.getMessagesFields(mids, ['mid', 'content', 'roomId', 'fromuid', 'timestamp', 'deleted', 'system']);
+				// Resolve deleted/system messages and orphan rooms in one pass.
+				const seenRoomIds = [...new Set(messages.map(m => m && m.roomId).filter(rid => rid != null && rid !== ''))];
+				const roomsData = seenRoomIds.length ? await Messaging.getRoomsData(seenRoomIds) : [];
+				const roomIdToExists = {};
+				roomsData.forEach((room) => {
+					if (room && room.roomId != null) roomIdToExists[room.roomId] = true;
+				});
+				const activeMessages = [];
+				const deletedMids = [];
+				const systemMids = [];
+				const orphanMids = [];
+				messages.forEach((msg) => {
+					if (!msg || !msg.mid) return;
+					if (parseInt(msg.deleted, 10) === 1) {
+						deletedMids.push(msg.mid);
+					} else if (parseInt(msg.system, 10) === 1) {
+						systemMids.push(msg.mid);
+					} else if (!roomIdToExists[msg.roomId]) {
+						orphanMids.push(msg.mid);
+					} else {
+						activeMessages.push(msg);
+					}
+				});
+				skippedDeletedMessages += deletedMids.length;
+				skippedSystemMessages += systemMids.length;
+				skippedOrphanMessages += orphanMids.length;
+				const allDeindexMids = [...deletedMids, ...systemMids, ...orphanMids];
+				if (allDeindexMids.length) {
+					await plugin.client.index('chat_message').deleteDocuments(allDeindexMids);
+				}
+				if (!activeMessages.length) return;
+				await plugin.client.index('chat_message').updateDocuments(
+					activeMessages.map(msg => ({
+						mid: msg.mid,
+						roomId: msg.roomId,
+						uid: msg.fromuid,
+						content: msg.content,
+						timestamp: msg.timestamp,
+					})),
+					{ primaryKey: 'mid' },
+				);
+			},
+			{ batch: REINDEX_BATCH_SIZE, progress: plugin.indexing.message_progress },
+		);
 		succeeded = true;
-		winston.info('[plugin/meilisearch] Indexing complete');
+		winston.info('[plugin/meilisearch] Indexing of posts, topics and chat messages complete');
 	} catch (err) {
 		winston.error(`[plugin/meilisearch] Indexing failed: ${err.message}`);
 		errorMsg = err.message;
@@ -547,8 +867,15 @@ async function runReindex(force) {
 				current: plugin.indexing.post_progress.current,
 				total: plugin.indexing.post_progress.total,
 			},
+			message_progress: {
+				current: plugin.indexing.message_progress.current,
+				total: plugin.indexing.message_progress.total,
+			},
 			skippedDeletedTopics,
 			skippedDeletedPosts,
+			skippedDeletedMessages,
+			skippedSystemMessages,
+			skippedOrphanMessages,
 			error: errorMsg,
 		};
 		try {
@@ -933,6 +1260,7 @@ plugin.checkConflict = function () {
 	const hooksToCheck = [
 		'filter:search.query',
 		'filter:topic.search',
+		'filter:messaging.searchMessages',
 	];
 	// blacklist, in case someone makes a plugin using these hooks that doesn't conflict.
 	// also, outside of dbsearch the user is expected to realize they installed two search plugins.
@@ -948,6 +1276,97 @@ plugin.checkConflict = function () {
 		}
 	}
 	return false;
+};
+
+plugin.indexMessage = async function ({ message }) {
+	const deferPayload = { message };
+	if (await maybeDefer('indexMessage', deferPayload)) return;
+	if (!message || !message.mid) return;
+	// Re-fetch from DB if content/roomId/fromuid/timestamp missing or if this is an edit (payload may be partial).
+	// Restore payload (delete.js) omits timestamp; save/edit payloads carry it. Re-fetch fills the gap.
+	if (message.content === undefined || message.roomId === undefined || message.fromuid === undefined || message.timestamp === undefined) {
+		const fresh = await Messaging.getMessageFields(message.mid, ['mid', 'content', 'roomId', 'fromuid', 'timestamp', 'deleted', 'system']);
+		// Bail if message was hard-purged mid-flight (fresh=null or stub with mid=0) — avoids indexing a phantom doc.
+		if (!fresh || !fresh.mid) return;
+		message = { ...fresh, ...message };
+	}
+	// Skip deleted messages (admin editing a deleted message should not re-index it).
+	if (parseInt(message.deleted, 10) === 1) {
+		winston.debug(`[plugin/meilisearch] Skipping deleted message ${message.mid}`);
+		return;
+	}
+	// Skip system messages (join/leave/rename etc. — no searchable content, mirrors dbsearch).
+	if (parseInt(message.system, 10) === 1) {
+		winston.debug(`[plugin/meilisearch] Skipping system message ${message.mid}`);
+		return;
+	}
+	const doc = {
+		mid: message.mid,
+		roomId: message.roomId,
+		uid: message.fromuid,
+		content: message.content,
+		timestamp: message.timestamp,
+	};
+	await meiliWrite('indexMessage', { message: { mid: message.mid } }, () =>
+		plugin.client.index('chat_message').updateDocuments([doc], { primaryKey: 'mid' }));
+};
+
+plugin.deindexMessage = async function ({ message }) {
+	const deferPayload = { message };
+	if (await maybeDefer('deindexMessage', deferPayload)) return;
+	if (!message || !message.mid) return;
+	await meiliWrite('deindexMessage', { message }, () =>
+		plugin.client.index('chat_message').deleteDocument(message.mid));
+};
+
+plugin.searchMessages = async function (data) {
+	if (!data || !data.content) {
+		return data;
+	}
+	if (plugin.checkConflict()) {
+		winston.warn('[plugin/meilisearch] Another search plugin (most likely dbsearch) is enabled, so chat search via Meilisearch was aborted.');
+		return data;
+	}
+	if (!plugin.healthy && !(await plugin.checkHealth())) {
+		winston.warn('[plugin/meilisearch] Meilisearch instance did not return a healthy response, so chat search via Meilisearch was aborted.');
+		return data;
+	}
+	const rawQuery = String(data.content).trim();
+	const minTermLength = await resolveMinTermLength();
+	if (!rawQuery || !rawQuery.split(' ').some(word => word.length >= minTermLength)) {
+		winston.debug(`[plugin/meilisearch] Skipping chat search: no query word >= ${minTermLength} char(s)`);
+		return data;
+	}
+	const num = (v) => {
+		const n = parseInt(v, 10);
+		return Number.isFinite(n) ? n : null;
+	};
+	const filter = [];
+	// Core passes roomId/uid as arrays (filter:messaging.searchMessages payload in src/api/search.js).
+	const roomIds = Array.isArray(data.roomId) ? data.roomId : [data.roomId];
+	const roomNums = roomIds.map(num).filter(r => r !== null);
+	// Fail closed: if no valid roomId, return no results rather than searching globally across all rooms.
+	if (!roomNums.length) {
+		winston.warn('[plugin/meilisearch] searchMessages called with no valid roomId; returning no results');
+		return data;
+	}
+	filter.push(roomNums.map(rid => `roomId = ${rid}`));
+	// uid is an optional sender filter (message author, not the searcher); never populated by core callers.
+	const uids = Array.isArray(data.uid) ? data.uid : [data.uid];
+	const uidNums = uids.map(num).filter(u => u !== null);
+	if (uidNums.length) {
+		filter.push(uidNums.map(u => `uid = ${u}`));
+	}
+	const limit = parseInt(await settings.getOne(plugin.id, 'maxDocuments') || 100, 10);
+	winston.debug(`[plugin/meilisearch] Searching chat messages for "${rawQuery}" in room ${roomNums.join(',')}`);
+	const result = await plugin.client.index('chat_message').search(rawQuery, {
+		attributesToRetrieve: ['mid'],
+		limit: Math.min(limit, 100),
+		filter: filter.length ? filter : undefined,
+		matchingStrategy: data.matchWords === 'all' ? 'all' : 'last',
+	});
+	data.ids = data.ids.concat(result.hits.map(hit => hit.mid));
+	return data;
 };
 
 plugin.search = async function (data) {
@@ -1043,10 +1462,10 @@ plugin.buildSort = function (sortBy, sortDirection) {
 plugin.saveSettings = async (data) => {
 	if (data.plugin === plugin.id && !data.quiet && plugin.initialized) {
 		try {
-			if (data.settings && Object.prototype.hasOwnProperty.call(data.settings, 'searchMinTermLength')) {
-				data.settings.searchMinTermLength = clampMinTermLength(data.settings.searchMinTermLength);
-			}
-			// #8: Only re-connect when connection settings changed.
+		if (data.settings && Object.prototype.hasOwnProperty.call(data.settings, 'searchMinTermLength')) {
+			data.settings.searchMinTermLength = clampMinTermLength(data.settings.searchMinTermLength);
+		}
+		// #8: Only re-connect when connection settings changed.
 			const connChanged = await connectionSettingsChanged(data.settings);
 			if (connChanged) {
 				// Fix 10: If host changed, clear indexed so prepareSearch auto-reindexes the new (empty) host.

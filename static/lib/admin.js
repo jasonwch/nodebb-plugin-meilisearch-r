@@ -12,14 +12,18 @@ define('admin/plugins/meilisearch', [
 	'modals',
 ], (settings, api, alerts, modals) => {
 	const ACP = {};
+	let reindexCompleteShown = false;
 
 	function onReindex(data) {
-		if (!data || !data.topic_progress || !data.post_progress) {
+		if (!data || !data.topic_progress || !data.post_progress || !data.message_progress) {
 			return;
+		}
+		if (data.running) {
+			reindexCompleteShown = false;
 		}
 		const progressBarContainers = document.querySelectorAll('.reindex-progress-container');
 		const hasProgress = data.running ||
-			Number(data.topic_progress.total) > 0 || Number(data.post_progress.total) > 0;
+			Number(data.topic_progress.total) > 0 || Number(data.post_progress.total) > 0 || Number(data.message_progress.total) > 0;
 		if (data.running || hasProgress) {
 			progressBarContainers.forEach((container) => {
 				container.classList.remove('hidden');
@@ -28,11 +32,15 @@ define('admin/plugins/meilisearch', [
 			setProgress(topicProgressBar, data.topic_progress.current, data.topic_progress.total);
 			const postProgressBar = document.getElementById('post-reindex-progress');
 			setProgress(postProgressBar, data.post_progress.current, data.post_progress.total);
+			const messageProgressBar = document.getElementById('message-reindex-progress');
+			setProgress(messageProgressBar, data.message_progress.current, data.message_progress.total);
 
 			document.getElementById('topic-reindex-progress-text').innerText =
 				`${Number(data.topic_progress.current) || 0}/${Number(data.topic_progress.total) || 0}`;
 			document.getElementById('post-reindex-progress-text').innerText =
 				`${Number(data.post_progress.current) || 0}/${Number(data.post_progress.total) || 0}`;
+			document.getElementById('message-reindex-progress-text').innerText =
+				`${Number(data.message_progress.current) || 0}/${Number(data.message_progress.total) || 0}`;
 		} else {
 			progressBarContainers.forEach((container) => {
 				container.classList.add('hidden');
@@ -40,8 +48,11 @@ define('admin/plugins/meilisearch', [
 		}
 		if (
 			!data.running && data.topic_progress.total === data.topic_progress.current &&
-			data.post_progress.total === data.post_progress.current
+			data.post_progress.total === data.post_progress.current &&
+			data.message_progress.total === data.message_progress.current &&
+			!reindexCompleteShown
 		) {
+			reindexCompleteShown = true;
 			alerts.alert({
 				title: '[[meilisearch:admin.reindexingCompleted]]',
 				message: '[[meilisearch:admin.reindexingCompletedBody]]',
@@ -59,13 +70,19 @@ define('admin/plugins/meilisearch', [
 	ACP.init = function () {
 		app.enterRoom('admin/plugins/meilisearch');
 		settings.load('meilisearch', $('.meilisearch-settings'), () => {
+			toggleLimitNotice();
 		});
 		$('#save').on('click', saveSettings);
 		$('#reindex').on('click', reindex);
 		formatLocalTimes();
+		$('#globalChatSearchEnabled').on('change', toggleLimitNotice);
 		socket.removeListener('plugins.meilisearch.reindex', onReindex);
 		socket.on('plugins.meilisearch.reindex', onReindex);
 	};
+
+	function toggleLimitNotice() {
+		$('#globalChatSearchLimitNotice').toggle($('#globalChatSearchEnabled').is(':checked'));
+	}
 
 	function setProgress(element, current, total) {
 		current = Number(current) || 0;
@@ -88,6 +105,11 @@ define('admin/plugins/meilisearch', [
 
 	function saveSettings() {
 		settings.save('meilisearch', $('.meilisearch-settings'), () => {
+			const saveBtn = $('#save').get(0);
+			if (saveBtn) {
+				saveBtn.classList.toggle('saved', true);
+				setTimeout(() => { saveBtn.classList.toggle('saved', false); }, 1500);
+			}
 			alerts.alert({
 				type: 'success',
 				alert_id: 'meilisearch-saved',
@@ -118,6 +140,7 @@ define('admin/plugins/meilisearch', [
 				? api.post('/plugins/meilisearch/reindex')
 				: api.del('/plugins/meilisearch/reindex');
 			request.then(() => {
+				document.getElementById('index-action').scrollIntoView({ behavior: 'smooth' });
 				alerts.alert({
 					type: 'info',
 					alert_id: 'meilisearch-reindex-started',
