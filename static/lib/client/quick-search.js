@@ -47,7 +47,7 @@
 	function bindResultClick(resultEl) {
 		resultEl
 			.off('click.meili-minimize')
-			.on('click.meili-minimize', '#quick-search-results a', function () {
+			.on('click.meili-minimize', '.quick-search-results-container a', function () {
 				var composerEl = resultEl.closest('.composer');
 				if (!composerEl.length) { return; }
 				var hideBtn = composerEl.find('[data-action="hide"]').first();
