@@ -80,7 +80,10 @@ $(document).ready(function () {
 		// Render the template FIRST (async), then atomically remove + prepend.
 		// This prevents chat-search's MutationObserver from re-injecting its
 		// container during the await gap (which caused duplicate search boxes).
-		const html = await app.parseAndTranslate('client/partials/chats/search-bar', {});
+		// Pre-translate placeholder (NodeBB 4.15.0 removed translator step from app.parseAndTranslate).
+		const translator = await app.require('translator');
+		const placeholder = await translator.translateKey('meilisearch:chatSearch.client.placeholder');
+		const html = await app.parseAndTranslate('client/partials/chats/search-bar', { placeholder: placeholder });
 		$('#global-chat-search-container').remove();
 		container.prepend(html);
 		restoreState();
@@ -138,19 +141,10 @@ $(document).ready(function () {
 		return text.replace(/\s+/g, ' ').trim();
 	}
 
-	async function translateHtml(html) {
-		return new Promise(function (resolve) {
-			require(['translator'], function (translator) {
-				translator.translate(html, function (translated) {
-					resolve(translator.unescape(translated));
-				});
-			});
-		});
-	}
-
 	async function executeSearch() {
 		const query = $('#global-chat-search').val();
 		const resultsContainer = $('#global-search-results');
+		const translator = await app.require('translator');
 
 		if (!query) {
 			resultsContainer.hide();
@@ -159,7 +153,8 @@ $(document).ready(function () {
 			return;
 		}
 
-		const spinnerHtml = await translateHtml('<div class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin"></i> [[meilisearch:chatSearch.client.searching]]</div>');
+		const searchingLabel = await translator.translateKey('meilisearch:chatSearch.client.searching');
+		const spinnerHtml = '<div class="text-center" style="padding:10px;"><i class="fa fa-spinner fa-spin"></i> ' + searchingLabel + '</div>';
 		resultsContainer.show().html(spinnerHtml);
 		window.chatSearchState.isOpen = true;
 
@@ -169,16 +164,21 @@ $(document).ready(function () {
 		socket.emit('plugins.meilisearch.chatSearchGlobal', payload, async function (err, messages) {
 			if (seq !== searchSeq) return;
 			if (err) {
-				const errorHtml = await translateHtml('<div class="alert alert-danger" style="margin:5px;">[[meilisearch:chatSearch.client.error]]</div>');
+				const errorLabel = await translator.translateKey('meilisearch:chatSearch.client.error');
+				const errorHtml = '<div class="alert alert-danger" style="margin:5px;">' + errorLabel + '</div>';
 				resultsContainer.html(errorHtml);
 				return;
 			}
 			if (!messages || messages.length === 0) {
-				const noResHtml = await translateHtml('<div class="text-center" style="padding:10px; color: var(--bs-secondary-color);">[[meilisearch:chatSearch.client.no-results]]</div>');
+				const noResultsLabel = await translator.translateKey('meilisearch:chatSearch.client.no-results');
+				const noResHtml = '<div class="text-center" style="padding:10px; color: var(--bs-secondary-color);">' + noResultsLabel + '</div>';
 				resultsContainer.html(noResHtml);
 				window.chatSearchState.resultsHtml = noResHtml;
 				return;
 			}
+
+			// Pre-translate unknown-user fallback (NodeBB 4.15.0 removed translator step from app.parseAndTranslate).
+			const unknownUserLabel = await translator.translateKey('meilisearch:chatSearch.client.unknown-user');
 
 			// Pre-process messages for the template
 			const preparedMessages = messages.map(function (msg) {
@@ -195,7 +195,7 @@ $(document).ready(function () {
 				var chatLink = hasRank
 					? (config.relative_path || '') + '/user/' + app.user.userslug + '/chats/' + roomId + '/' + (rank + 1)
 					: (config.relative_path || '') + '/message/' + mid;
-				var senderName = (msg.user && msg.user.username) ? msg.user.username : '[[meilisearch:chatSearch.client.unknown-user]]';
+				var senderName = (msg.user && msg.user.username) ? msg.user.username : unknownUserLabel;
 
 				return {
 					mid: mid,

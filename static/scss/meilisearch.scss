@@ -86,19 +86,42 @@
 	user-select: none;
 }
 
-/* Cap dropdown to roughly 3 result rows so it never overflows past the
-   browser bottom bar when the composer is in half-screen mode. Activated
-   only on composer dropdowns (data-meilisearch-decorated="1" set by
-   static/lib/client/quick-search.js). */
+/* Cap dropdown so it never overflows past the browser bottom bar when the
+   composer is in half-screen mode. Activated only on composer dropdowns
+   (data-meilisearch-decorated="1" set by static/lib/client/quick-search.js).
+   The max-height here is the single height control — the <ul> fills the
+   remaining space after the header and scrolls internally. */
 .quick-search-container[data-meilisearch-decorated="1"] {
-	max-height: 320px;
+	max-height: 370px;
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
+}
+
+.quick-search-container[data-meilisearch-decorated="1"] .quick-search-results-container {
+	display: flex;
+	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow: hidden;
+	position: relative;
 }
 
 .quick-search-container[data-meilisearch-decorated="1"] .quick-search-results {
 	max-height: 260px !important;
 	overflow: auto;
 	flex: 1 1 auto;
+	min-height: 0;
+	padding-bottom: 2rem;
+}
+
+/* Overlay the desktop "See more results" button at lower-right corner of the
+   scrolling results. No gradient, no padding — just the bare button. */
+.quick-search-container[data-meilisearch-decorated="1"] .quick-search-results-container > .text-center.mt-2.d-none.d-md-block {
+	position: absolute;
+	bottom: 0;
+	right: 0;
+	z-index: 10;
+	margin-top: 0 !important;
+	padding: 0;
 }
