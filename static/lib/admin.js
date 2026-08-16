@@ -67,21 +67,100 @@ define('admin/plugins/meilisearch', [
 		}
 	}
 
+	// Suggestions only - the model field is always free text so any model name/tag works.
+	// First entry in each list doubles as the input's placeholder.
+	const SEMANTIC_MODEL_SUGGESTIONS = {
+		openAi: ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'],
+		huggingFace: [
+			'BAAI/bge-base-en-v1.5', 'BAAI/bge-small-en-v1.5', 'BAAI/bge-large-en-v1.5',
+			'sentence-transformers/all-MiniLM-L6-v2', 'sentence-transformers/all-mpnet-base-v2',
+		],
+		ollama: ['nomic-embed-text', 'mxbai-embed-large', 'all-minilm', 'bge-m3'],
+		rest: [],
+	};
+	const SEMANTIC_URL_PLACEHOLDERS = {
+		ollama: 'http://localhost:11434/api/embeddings',
+		rest: 'https://api.example.com/embeddings',
+	};
+	// The literal {{text}}/{{embedding}} tokens below are Meilisearch's own REST
+	// embedder template syntax, not benchpress - kept in JS (not the .tpl) so they
+	// aren't mistaken for template expressions by the admin page's own renderer.
+	const SEMANTIC_REST_REQUEST_PLACEHOLDER = '{"input": "{{text}}", "model": "text-embedding-3-small"}';
+	const SEMANTIC_REST_RESPONSE_PLACEHOLDER = '{"data": [{"embedding": "{{embedding}}"}]}';
+	const SEMANTIC_FIELDS_BY_PROVIDER = {
+		openAi: ['apiKey', 'model'],
+		huggingFace: ['model'],
+		ollama: ['apiKey', 'model', 'url'],
+		rest: ['apiKey', 'url', 'rest'],
+	};
+
 	ACP.init = function () {
 		app.enterRoom('admin/plugins/meilisearch');
 		settings.load('meilisearch', $('.meilisearch-settings'), () => {
 			toggleLimitNotice();
+			initSemanticSearchFields();
+			toggleSemanticSearch();
+			toggleForceReindexCostNotice();
 		});
 		$('#save').on('click', saveSettings);
 		$('#reindex').on('click', reindex);
 		formatLocalTimes();
 		$('#globalChatSearchEnabled').on('change', toggleLimitNotice);
+		$('#semanticSearchEnabled').on('change', () => { toggleSemanticSearch(); toggleForceReindexCostNotice(); });
+		$('#semanticSearchProvider').on('change', toggleSemanticSearch);
+		$('#semanticSearchRatio').on('input', updateSemanticRatioLabel);
+		$('#force-reindex').on('change', toggleForceReindexCostNotice);
 		socket.removeListener('plugins.meilisearch.reindex', onReindex);
 		socket.on('plugins.meilisearch.reindex', onReindex);
 	};
 
 	function toggleLimitNotice() {
 		$('#globalChatSearchLimitNotice').toggle($('#globalChatSearchEnabled').is(':checked'));
+	}
+
+	function toggleForceReindexCostNotice() {
+		const semanticEnabled = $('#semanticSearchEnabled').is(':checked');
+		const forced = $('#force-reindex').is(':checked');
+		$('#semanticForceReindexCostNotice').toggle(semanticEnabled && forced);
+	}
+
+	function initSemanticSearchFields() {
+		updateModelSuggestions($('#semanticSearchProvider').val());
+		$('#semanticSearchUrl').attr('placeholder', SEMANTIC_URL_PLACEHOLDERS[$('#semanticSearchProvider').val()] || '');
+		$('#semanticSearchRestRequest').attr('placeholder', SEMANTIC_REST_REQUEST_PLACEHOLDER);
+		$('#semanticSearchRestResponse').attr('placeholder', SEMANTIC_REST_RESPONSE_PLACEHOLDER);
+		updateSemanticRatioLabel();
+	}
+
+	// Model stays a free-text input for every provider - the datalist is only
+	// suggestions, so any custom model name/tag can still be typed in directly.
+	function updateModelSuggestions(provider) {
+		const suggestions = SEMANTIC_MODEL_SUGGESTIONS[provider] || [];
+		const $list = $('#semanticSearchModelList');
+		$list.empty();
+		suggestions.forEach((model) => {
+			$list.append($('<option></option>').attr('value', model));
+		});
+		$('#semanticSearchModel').attr('placeholder', suggestions[0] || '');
+	}
+
+	function updateSemanticRatioLabel() {
+		const val = parseFloat($('#semanticSearchRatio').val());
+		$('#semanticSearchRatioValue').text(Number.isFinite(val) ? val.toFixed(2) : '0.50');
+	}
+
+	function toggleSemanticSearch() {
+		const enabled = $('#semanticSearchEnabled').is(':checked');
+		$('#semantic-search-options').toggle(enabled);
+		if (!enabled) return;
+		const provider = $('#semanticSearchProvider').val();
+		const visibleFields = SEMANTIC_FIELDS_BY_PROVIDER[provider] || [];
+		updateModelSuggestions(provider);
+		$('#semanticSearchUrl').attr('placeholder', SEMANTIC_URL_PLACEHOLDERS[provider] || '');
+		$('[data-semantic-field]').each(function toggleField() {
+			const $field = $(this);
+			$field.toggle(visibleFields.includes($field.attr('data-semantic-field')));
+		});
 	}
 
 	function setProgress(element, current, total) {
@@ -132,7 +211,11 @@ define('admin/plugins/meilisearch', [
 	}
 	function reindex() {
 		const forceReindex = document.getElementById('force-reindex').checked;
-		modals.confirm('[[meilisearch:admin.confirmReindex]]', (confirm) => {
+		const semanticEnabled = $('#semanticSearchEnabled').is(':checked');
+		const confirmMessage = (forceReindex && semanticEnabled)
+			? '[[meilisearch:admin.confirmReindex]]<br><br><strong>[[meilisearch:admin.semanticForceReindexCostNotice]]</strong>'
+			: '[[meilisearch:admin.confirmReindex]]';
+		modals.confirm(confirmMessage, (confirm) => {
 			if (!confirm) {
 				return;
 			}
