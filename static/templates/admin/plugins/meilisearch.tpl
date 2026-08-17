@@ -273,6 +273,11 @@
 							<input type="range" id="semanticSearchRatio" name="semanticSearchRatio" title="Semantic ratio" class="form-range" min="0" max="1" step="0.05">
 							<p class="form-text">{{tx("meilisearch:admin.semanticSearchRatioHelp")}}</p>
 						</div>
+						<div class="mb-3">
+							<label class="form-label" for="semanticSearchScoreThreshold">{{tx("meilisearch:admin.semanticSearchScoreThreshold")}}: <span id="semanticSearchScoreThresholdValue">0.20</span></label>
+							<input type="range" id="semanticSearchScoreThreshold" name="semanticSearchScoreThreshold" title="Minimum relevance score" class="form-range" min="0" max="1" step="0.05">
+							<p class="form-text">{{tx("meilisearch:admin.semanticSearchScoreThresholdHelp")}}</p>
+						</div>
 					</div>
 				</div>
 

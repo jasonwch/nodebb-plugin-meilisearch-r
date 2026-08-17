@@ -85,11 +85,14 @@ define('admin/plugins/meilisearch', [
 		ollama: 'http://localhost:11434/api/embeddings',
 		rest: 'https://api.example.com/embeddings',
 	};
-	// The literal {{text}}/{{embedding}} tokens below are Meilisearch's own REST
-	// embedder template syntax, not benchpress - kept in JS (not the .tpl) so they
-	// aren't mistaken for template expressions by the admin page's own renderer.
-	const SEMANTIC_REST_REQUEST_PLACEHOLDER = '{"input": "{{text}}", "model": "text-embedding-3-small"}';
-	const SEMANTIC_REST_RESPONSE_PLACEHOLDER = '{"data": [{"embedding": "{{embedding}}"}]}';
+	// The literal {{text}}/{{embedding}}/{{..}} tokens below are Meilisearch's own REST
+	// embedder template syntax, not benchpress - kept in JS (not the .tpl) so they aren't
+	// mistaken for template expressions by the admin page's own renderer. "{{..}}" as the
+	// 2nd array element (in BOTH templates) enables batching - Meilisearch sends multiple
+	// documents' texts in one HTTP call during indexing; omitting it causes
+	// "response has a single embedding, but request has multiple texts to embed".
+	const SEMANTIC_REST_REQUEST_PLACEHOLDER = '{"input": ["{{text}}", "{{..}}"], "model": "text-embedding-3-small"}';
+	const SEMANTIC_REST_RESPONSE_PLACEHOLDER = '{"data": [{"embedding": "{{embedding}}"}, "{{..}}"]}';
 	const SEMANTIC_FIELDS_BY_PROVIDER = {
 		openAi: ['apiKey', 'model', 'url'],
 		huggingFace: ['model'],
@@ -145,6 +148,7 @@ define('admin/plugins/meilisearch', [
 		$('#semanticSearchEnabled').on('change', () => { toggleSemanticSearch(); toggleForceReindexCostNotice(); });
 		$('#semanticSearchProvider').on('change', toggleSemanticSearch);
 		$('#semanticSearchRatio').on('input', updateSemanticRatioLabel);
+		$('#semanticSearchScoreThreshold').on('input', updateSemanticScoreThresholdLabel);
 		$('#force-reindex').on('change', toggleForceReindexCostNotice);
 		socket.removeListener('plugins.meilisearch.reindex', onReindex);
 		socket.on('plugins.meilisearch.reindex', onReindex);
@@ -181,6 +185,7 @@ define('admin/plugins/meilisearch', [
 		$('#semanticSearchRestRequest').attr('placeholder', SEMANTIC_REST_REQUEST_PLACEHOLDER);
 		$('#semanticSearchRestResponse').attr('placeholder', SEMANTIC_REST_RESPONSE_PLACEHOLDER);
 		updateSemanticRatioLabel();
+		updateSemanticScoreThresholdLabel();
 	}
 
 	// Model stays a free-text input for every provider - the datalist is only
@@ -198,6 +203,11 @@ define('admin/plugins/meilisearch', [
 	function updateSemanticRatioLabel() {
 		const val = parseFloat($('#semanticSearchRatio').val());
 		$('#semanticSearchRatioValue').text(Number.isFinite(val) ? val.toFixed(2) : '0.50');
+	}
+
+	function updateSemanticScoreThresholdLabel() {
+		const val = parseFloat($('#semanticSearchScoreThreshold').val());
+		$('#semanticSearchScoreThresholdValue').text(Number.isFinite(val) ? val.toFixed(2) : '0.20');
 	}
 
 	function toggleSemanticSearch() {
