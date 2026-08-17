@@ -3,6 +3,7 @@
 const plugin = {};
 
 require('./lib/state')(plugin);
+require('./lib/alerts')(plugin);
 require('./lib/client')(plugin);
 require('./lib/reindex')(plugin);
 require('./lib/hooks/posts')(plugin);

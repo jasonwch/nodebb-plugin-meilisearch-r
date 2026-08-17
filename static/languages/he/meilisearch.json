@@ -48,6 +48,7 @@
 	"admin.forceReindex": "כפיית אינדוקס מחדש (מחיקת כל המסמכים)",
 	"admin.reindexHelp": "אינדוקס מחדש של כל הפוסטים והנושאים, במקרה של אי-התאמה בין Meilisearch ל-NodeBB. פעולה זו עשויה לקחת זמן, בהתאם למספר הפוסטים והנושאים בפורום שלכם.",
 	"admin.confirmReindex": "האם אתם בטוחים שברצונכם להתחיל באינדוקס מחדש של כל הפוסטים והנושאים?<br>פעולה זו עשויה לקחת זמן.",
+	"admin.confirmSemanticSave": "פעולה זו משנה את ספק החיפוש הסמנטי, פרטי ההתחברות, המודל, ה-URL או המימדים.<br><br><strong>Meilisearch תטמיע מחדש כל מסמך קיים דרך ה-API של ההטמעה שלכם בפעם הבאה שזה יוחל - פעולה זו עלולה לגרור עלות API ממשית.</strong><br><br>לשמור בכל זאת?",
 	"admin.reindexPostsProgress": "מבצע אינדוקס מחדש לפוסטים...",
 	"admin.reindexTopicsProgress": "מבצע אינדוקס מחדש לנושאים...",
 	"admin.reindexMessagesProgress": "מבצע אינדוקס מחדש להודעות צ'אט...",
@@ -88,6 +89,7 @@
 	"admin.semanticSearchModel": "מודל",
 	"admin.semanticSearchModelHelp": "טקסט חופשי - הקלידו כל שם/תג מודל שהספק שלכם תומך בו. התפריט הנפתח מציע רק הצעות נפוצות.",
 	"admin.semanticSearchUrl": "כתובת URL",
+	"admin.semanticSearchUrlHelp": "אופציונלי עבור OpenAI/Ollama, חובה עבור נקודת קצה REST מותאמת אישית. השתמשו בשדה זה כדי להפנות ספק תואם-OpenAI (כמו OpenRouter, Azure OpenAI, LocalAI וכו') לנקודת הקצה של embeddings שלו במקום לברירת המחדל של הספק - יש לכלול את הנתיב המלא (למשל .../v1/embeddings), לא רק את כתובת ה-API הבסיסית. השאירו ריק כדי להשתמש בנקודת הקצה המובנית של הספק.",
 	"admin.semanticSearchDimensions": "מימדי הטמעה (אופציונלי)",
 	"admin.semanticSearchDimensionsHelp": "השאירו ריק כדי לאפשר ל-Meilisearch לזהות זאת אוטומטית. נדרש עבור חלק מנקודות הקצה של REST מותאמות אישית.",
 	"admin.semanticSearchRestRequest": "תבנית בקשה (JSON)",
@@ -96,5 +98,8 @@
 	"admin.semanticSearchRatio": "יחס סמנטי",
 	"admin.semanticSearchRatioHelp": "כמה משקל מקבלות התאמות סמנטיות (מבוססות-משמעות) לעומת התאמות מילות מפתח. 0 = חיפוש מילות מפתח בלבד, 1 = חיפוש סמנטי בלבד.",
 	"admin.semanticSearchSaveNotice": "שינוי הספק, פרטי ההתחברות, המודל או המימדים למעלה גורם להטמעה מחדש (re-embed) של כל מסמך דרך ה-API של ההטמעה בפעם הבאה שההגדרות יישמרו. הפעלה/כיבוי של היחס בלבד אינה גורמת לכך.",
-	"admin.semanticForceReindexCostNotice": "חיפוש סמנטי מופעל: כפיית אינדוקס מחדש מוחקת כל מסמך ומטמיעה מחדש את כולם מאפס דרך ה-API של ההטמעה שלכם. פעולה זו עלולה לגרור עלות API ממשית - אינדוקס מחדש רגיל (לא כפוי) אינו מטמיע מחדש תוכן שלא השתנה."
+	"admin.semanticForceReindexCostNotice": "חיפוש סמנטי מופעל: כפיית אינדוקס מחדש מוחקת כל מסמך ומטמיעה מחדש את כולם מאפס דרך ה-API של ההטמעה שלכם. פעולה זו עלולה לגרור עלות API ממשית - אינדוקס מחדש רגיל (לא כפוי) אינו מטמיע מחדש תוכן שלא השתנה.",
+	"admin.meilisearchError": "שגיאת Meilisearch",
+	"admin.semanticEmbedderFailed": "עדכון ה-embedder נכשל",
+	"admin.semanticSearchDegraded": "שגיאת חיפוש סמנטי"
 }

@@ -79,6 +79,9 @@ define('admin/plugins/meilisearch', [
 		rest: [],
 	};
 	const SEMANTIC_URL_PLACEHOLDERS = {
+		// Leave OpenAI's own default endpoint as an empty placeholder - it's optional there,
+		// only needed to point at an OpenAI-compatible provider (OpenRouter, Azure, LocalAI...).
+		openAi: 'https://api.openai.com/v1/embeddings',
 		ollama: 'http://localhost:11434/api/embeddings',
 		rest: 'https://api.example.com/embeddings',
 	};
@@ -88,11 +91,43 @@ define('admin/plugins/meilisearch', [
 	const SEMANTIC_REST_REQUEST_PLACEHOLDER = '{"input": "{{text}}", "model": "text-embedding-3-small"}';
 	const SEMANTIC_REST_RESPONSE_PLACEHOLDER = '{"data": [{"embedding": "{{embedding}}"}]}';
 	const SEMANTIC_FIELDS_BY_PROVIDER = {
-		openAi: ['apiKey', 'model'],
+		openAi: ['apiKey', 'model', 'url'],
 		huggingFace: ['model'],
 		ollama: ['apiKey', 'model', 'url'],
 		rest: ['apiKey', 'url', 'rest'],
 	};
+	// Mirrors the server's SEMANTIC_SETTING_KEYS (lib/embedder.js) minus "enabled" (handled
+	// separately below, since off->on matters regardless of these) and "ratio" (confirmed
+	// cost-free - buildEmbedderConfig() never reads it). Any of these changing while semantic
+	// search is enabled makes the next Save re-embed every document through the configured
+	// (often paid) API - see admin.semanticSearchSaveNotice.
+	const SEMANTIC_COST_FIELDS = [
+		'semanticSearchProvider', 'semanticSearchApiKey', 'semanticSearchModel',
+		'semanticSearchUrl', 'semanticSearchDimensions', 'semanticSearchRestRequest', 'semanticSearchRestResponse',
+	];
+	// Snapshotted right after the form is populated (on load, and again after every
+	// successful save) so saveSettings() can tell "did a cost-triggering field actually
+	// change" apart from "the form just happens to hold these values" (e.g. re-saving
+	// unrelated settings like ranking rules should never prompt a confirm).
+	let semanticSnapshot = null;
+
+	function captureSemanticSnapshot() {
+		semanticSnapshot = { enabled: $('#semanticSearchEnabled').is(':checked'), fields: {} };
+		SEMANTIC_COST_FIELDS.forEach((id) => {
+			semanticSnapshot.fields[id] = $(`#${id}`).val();
+		});
+	}
+
+	// True only when semantic search is (or is about to be) enabled AND something that
+	// feeds buildEmbedderConfig() actually changed since the last load/save - never fires
+	// for a plain re-save of the same values, or for disabling semantic search (free).
+	function semanticCostChangeDetected() {
+		if (!semanticSnapshot) return false;
+		const enabledNow = $('#semanticSearchEnabled').is(':checked');
+		if (!enabledNow) return false;
+		if (!semanticSnapshot.enabled) return true;
+		return SEMANTIC_COST_FIELDS.some(id => $(`#${id}`).val() !== semanticSnapshot.fields[id]);
+	}
 
 	ACP.init = function () {
 		app.enterRoom('admin/plugins/meilisearch');
@@ -101,6 +136,7 @@ define('admin/plugins/meilisearch', [
 			initSemanticSearchFields();
 			toggleSemanticSearch();
 			toggleForceReindexCostNotice();
+			captureSemanticSnapshot();
 		});
 		$('#save').on('click', saveSettings);
 		$('#reindex').on('click', reindex);
@@ -112,7 +148,22 @@ define('admin/plugins/meilisearch', [
 		$('#force-reindex').on('change', toggleForceReindexCostNotice);
 		socket.removeListener('plugins.meilisearch.reindex', onReindex);
 		socket.on('plugins.meilisearch.reindex', onReindex);
+		socket.removeListener('plugins.meilisearch.alert', onAlert);
+		socket.on('plugins.meilisearch.alert', onAlert);
 	};
+
+	// Real-time server-side failures (embedder push rejected, search degraded because the
+	// configured embedder/endpoint is broken, ...) - surfaced here instead of only in the
+	// server log, since admins reading the ACP won't necessarily be tailing logs.
+	function onAlert(data) {
+		if (!data) return;
+		alerts.alert({
+			type: data.type || 'danger',
+			title: data.titleKey || '[[meilisearch:admin.meilisearchError]]',
+			message: data.message || '',
+			timeout: 15000,
+		});
+	}
 
 	function toggleLimitNotice() {
 		$('#globalChatSearchLimitNotice').toggle($('#globalChatSearchEnabled').is(':checked'));
@@ -183,12 +234,25 @@ define('admin/plugins/meilisearch', [
 	}
 
 	function saveSettings() {
+		if (semanticCostChangeDetected()) {
+			modals.confirm('[[meilisearch:admin.confirmSemanticSave]]', (confirm) => {
+				if (confirm) doSaveSettings();
+			});
+			return;
+		}
+		doSaveSettings();
+	}
+
+	function doSaveSettings() {
 		settings.save('meilisearch', $('.meilisearch-settings'), () => {
 			const saveBtn = $('#save').get(0);
 			if (saveBtn) {
 				saveBtn.classList.toggle('saved', true);
 				setTimeout(() => { saveBtn.classList.toggle('saved', false); }, 1500);
 			}
+			// Re-baseline: this save's values are now "current", so the next save only
+			// prompts again if something changes relative to what was JUST saved.
+			captureSemanticSnapshot();
 			alerts.alert({
 				type: 'success',
 				alert_id: 'meilisearch-saved',

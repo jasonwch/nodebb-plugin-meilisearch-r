@@ -252,6 +252,7 @@
 						<div class="mb-3" data-semantic-field="url">
 							<label class="form-label" for="semanticSearchUrl">{{tx("meilisearch:admin.semanticSearchUrl")}}</label>
 							<input type="text" id="semanticSearchUrl" name="semanticSearchUrl" title="URL" class="form-control">
+							<p class="form-text">{{tx("meilisearch:admin.semanticSearchUrlHelp")}}</p>
 						</div>
 						<div class="mb-3">
 							<label class="form-label" for="semanticSearchDimensions">{{tx("meilisearch:admin.semanticSearchDimensions")}}</label>

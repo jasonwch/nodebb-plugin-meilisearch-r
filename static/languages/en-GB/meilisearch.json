@@ -48,6 +48,7 @@
 	"admin.forceReindex": "Force reindex (delete all documents)",
 	"admin.reindexHelp": "Index all posts and topics again, in case of a mismatch between Meilisearch and NodeBB. This can take a while depending on the number of posts and topics in your forum.",
 	"admin.confirmReindex": "Are you sure you want to start reindexing all posts and topics?<br>This operation can take a while.",
+	"admin.confirmSemanticSave": "This changes the semantic search provider, credentials, model, URL, or dimensions.<br><br><strong>Meilisearch will re-embed every existing document through your embedding API the next time it applies this - this can incur real API cost.</strong><br><br>Save anyway?",
 	"admin.reindexPostsProgress": "Reindexing posts...",
 	"admin.reindexTopicsProgress": "Reindexing topics...",
 	"admin.reindexMessagesProgress": "Reindexing chat messages...",
@@ -88,6 +89,7 @@
 	"admin.semanticSearchModel": "Model",
 	"admin.semanticSearchModelHelp": "Free text - type any model name/tag your provider supports. The dropdown only offers common suggestions.",
 	"admin.semanticSearchUrl": "URL",
+	"admin.semanticSearchUrlHelp": "Optional for OpenAI/Ollama, required for a custom REST endpoint. Use this to point an OpenAI-compatible provider (OpenRouter, Azure OpenAI, LocalAI, etc.) at its own embeddings endpoint instead of the provider's default - include the full path (e.g. .../v1/embeddings), not just the base API URL. Leave empty to use the provider's default endpoint.",
 	"admin.semanticSearchDimensions": "Embedding dimensions (optional)",
 	"admin.semanticSearchDimensionsHelp": "Leave empty to let Meilisearch detect this automatically. Required for some custom REST endpoints.",
 	"admin.semanticSearchRestRequest": "Request template (JSON)",
@@ -96,5 +98,8 @@
 	"admin.semanticSearchRatio": "Semantic ratio",
 	"admin.semanticSearchRatioHelp": "How much weight semantic (meaning-based) matches get versus keyword matches. 0 = keyword search only, 1 = semantic search only.",
 	"admin.semanticSearchSaveNotice": "Changing the provider, credentials, model, or dimensions above re-embeds every document via your embedding API the next time settings are saved. Toggling the ratio alone does not.",
-	"admin.semanticForceReindexCostNotice": "Semantic search is enabled: force reindex deletes every document and re-embeds all of them from scratch via your embedding API. This can incur real API cost - a regular (non-forced) reindex does not re-embed unchanged content."
+	"admin.semanticForceReindexCostNotice": "Semantic search is enabled: force reindex deletes every document and re-embeds all of them from scratch via your embedding API. This can incur real API cost - a regular (non-forced) reindex does not re-embed unchanged content.",
+	"admin.meilisearchError": "Meilisearch error",
+	"admin.semanticEmbedderFailed": "Embedder update failed",
+	"admin.semanticSearchDegraded": "Semantic search error"
 }
