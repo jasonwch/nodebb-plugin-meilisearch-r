@@ -103,5 +103,11 @@
 	"admin.semanticForceReindexCostNotice": "Semantic search is enabled: force reindex deletes every document and re-embeds all of them from scratch via your embedding API. This can incur real API cost - a regular (non-forced) reindex does not re-embed unchanged content.",
 	"admin.meilisearchError": "Meilisearch error",
 	"admin.semanticEmbedderFailed": "Embedder update failed",
-	"admin.semanticSearchDegraded": "Semantic search error"
+	"admin.ollamaTesting": "Testing Ollama reachability...",
+	"admin.ollamaUnreachableBody": "Ollama is not reachable from this NodeBB (probe URL: <code>%1</code>; error: %2). If you are sure the Ollama is up and reachable from Meilisearch instance, click Confirm to save anyway.",
+	"admin.ollamaReachable": "Ollama reachable (v%1)",
+	"admin.ollamaReachableNoVersion": "Ollama reachable",
+	"admin.semanticConfigInvalid": "Embedder config invalid",
+	"admin.semanticSearchDegraded": "Semantic search error",
+	"admin.semanticEmbedderDelayedFailed": "Embedder task failed after delay (background check)"
 }

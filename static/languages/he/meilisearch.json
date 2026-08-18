@@ -103,5 +103,11 @@
 	"admin.semanticForceReindexCostNotice": "חיפוש סמנטי מופעל: כפיית אינדוקס מחדש מוחקת כל מסמך ומטמיעה מחדש את כולם מאפס דרך ה-API של ההטמעה שלכם. פעולה זו עלולה לגרור עלות API ממשית - אינדוקס מחדש רגיל (לא כפוי) אינו מטמיע מחדש תוכן שלא השתנה.",
 	"admin.meilisearchError": "שגיאת Meilisearch",
 	"admin.semanticEmbedderFailed": "עדכון ה-embedder נכשל",
-	"admin.semanticSearchDegraded": "שגיאת חיפוש סמנטי"
+	"admin.ollamaTesting": "בודק נגישות Ollama...",
+	"admin.ollamaUnreachableBody": "Ollama אינו נגיש מ-NodeBB זה (כתובת בדיקה: <code>%1</code>; שגיאה: %2). אם אתם בטוחים ש-Ollama פועל ונגיש ממופע Meilisearch, לחצו על אישור כדי לשמור בכל זאת.",
+	"admin.ollamaReachable": "Ollama נגיש (v%1)",
+	"admin.ollamaReachableNoVersion": "Ollama נגיש",
+	"admin.semanticConfigInvalid": "תצורת embedder לא תקינה",
+	"admin.semanticSearchDegraded": "שגיאת חיפוש סמנטי",
+	"admin.semanticEmbedderDelayedFailed": "משימת embedder נכשלה לאחר השהיה (בדיקת רקע)"
 }
