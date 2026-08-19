@@ -336,6 +336,11 @@ define('admin/plugins/meilisearch', [
 	// click means "Save anyway" (override the probe failure), "Cancel" aborts the save.
 	async function proceedWithOllamaProbe() {
 		const url = ($('#semanticSearchUrl').val() || '').trim();
+		// Disable save button during the async probe to prevent double-click stacking modals.
+		// Re-enabled in every exit path (success → doSaveSettings, failure → modal, error → save).
+		const $saveBtn = $('#save');
+		$saveBtn.prop('disabled', true);
+		const reEnableSave = () => { $saveBtn.prop('disabled', false); };
 		alerts.alert({
 			type: 'info',
 			alert_id: 'meilisearch-ollama-probe',
@@ -353,6 +358,7 @@ define('admin/plugins/meilisearch', [
 					: '[[meilisearch:admin.ollamaReachableNoVersion]]',
 					timeout: 3000,
 				});
+				reEnableSave();
 				// Probe passed — continue with cost-confirm if applicable, else save directly
 				if (semanticCostChangeDetected()) {
 					modals.confirm('[[meilisearch:admin.confirmSemanticSave]]', (confirm) => {
@@ -378,6 +384,7 @@ define('admin/plugins/meilisearch', [
 				[probeUrl, errorDetail],
 				translator.getLanguage(),
 			);
+			reEnableSave();
 			modals.confirm(message, (confirm) => {
 				if (!confirm) return;  // admin cancelled — save aborted, form preserved
 				// Admin chose "Save anyway" — continue with cost-confirm if applicable
@@ -392,6 +399,7 @@ define('admin/plugins/meilisearch', [
 		} catch (err) {
 			// NodeBB's own API route unreachable (shouldn't normally happen — server down?)
 			// Fall through to save so admin isn't blocked by an unrelated server error
+			reEnableSave();
 			alerts.error(err.message || 'Ollama probe failed unexpectedly');
 			if (semanticCostChangeDetected()) {
 				modals.confirm('[[meilisearch:admin.confirmSemanticSave]]', (confirm) => {
