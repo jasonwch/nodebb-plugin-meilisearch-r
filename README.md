@@ -13,6 +13,7 @@ A plugin for integrating MeiliSearch with NodeBB (This plugin is inspired and re
 - Bug fixes from existing plugin.
 - Chat search support
 - Global chat search support (will auto detect and override ```nodebb-plugin-chat-search```)
+- Semantic / hybrid (AI) search via Meilisearch embedders, configurable from the ACP (OpenAI, Hugging Face, Ollama, or a custom REST embedding endpoint). Requires a Meilisearch instance with embedder support (v1.13+).
 
 \
 <ins>**Composer suggestions**</ins>

@@ -1,6 +1,6 @@
 {
 	"name": "@jasonwch/nodebb-plugin-meilisearch-r",
-	"version": "1.1.2",
+	"version": "1.2.0",
 	"description": "Enhanced plugin for integrating MeiliSearch with NodeBB",
 	"author": {
 		"name": "JasonCH",

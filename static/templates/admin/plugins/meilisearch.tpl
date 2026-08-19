@@ -93,6 +93,9 @@
 						<label class="form-check-label" for="force-reindex"><strong>{{tx("meilisearch:admin.forceReindex")}}</strong></label>
 					</div>
 				</div>
+				<p class="form-text text-center" id="semanticForceReindexCostNotice" style="display:none;">
+					<span class="text-danger fw-bold fst-italic">({{tx("meilisearch:admin.semanticForceReindexCostNotice")}})</span>
+				</p>
 				<div class="reindex-progress-container {{{ if !indexing.running}}}hidden{{{end}}}">
 					<h6 class="text-center">{{tx("meilisearch:admin.reindexTopicsProgress")}} <span id="topic-reindex-progress-text">{indexing.topic_progress.current}/{indexing.topic_progress.total}</span></h6>
 					<div class="progress mb-3">
@@ -211,6 +214,70 @@
 						<label class="form-label" for="typoToleranceDisableOnWordsList">{{tx("meilisearch:admin.typoToleranceDisableOnWords")}}</label>
 						<ul name="typoToleranceDisableOnWordsList" data-type="list" class="list-group"></ul>
 						<button type="button" data-type="add" class="btn btn-info">{{tx("meilisearch:admin.addTypoToleranceDisabledWord")}}</button>
+					</div>
+				</div>
+
+				<!-- 9. Semantic search -->
+				<div id="semantic-search" class="mb-4">
+					<h5 class="fw-bold tracking-tight settings-header">{{tx("meilisearch:admin.semanticSearch")}}</h5>
+					<p class="form-text">{{tx("meilisearch:admin.semanticSearchHelp")}} <a href="https://www.meilisearch.com/docs/learn/ai_powered_search/getting_started_with_ai_search" style="word-break: break-all;">https://www.meilisearch.com/docs/learn/ai_powered_search/getting_started_with_ai_search</a></p>
+					<div class="form-check form-switch mb-3">
+						<input class="form-check-input" type="checkbox" id="semanticSearchEnabled" name="semanticSearchEnabled">
+						<label class="form-check-label" for="semanticSearchEnabled"><strong>{{tx("meilisearch:admin.semanticSearchEnable")}}</strong></label>
+					</div>
+					<p class="form-text">
+						<span class="text-danger fw-bold fst-italic">({{tx("meilisearch:admin.semanticSearchSaveNotice")}})</span>
+					</p>
+					<div id="semantic-search-options">
+						<div class="mb-3">
+							<label class="form-label" for="semanticSearchProvider">{{tx("meilisearch:admin.semanticSearchProvider")}}</label>
+							<select id="semanticSearchProvider" name="semanticSearchProvider" title="Embedding provider" class="form-select">
+								<option value="openAi">OpenAI</option>
+								<option value="huggingFace">Hugging Face ({{tx("meilisearch:admin.semanticSearchLocal")}})</option>
+								<option value="ollama">Ollama ({{tx("meilisearch:admin.semanticSearchLocal")}})</option>
+								<option value="rest">{{tx("meilisearch:admin.semanticSearchCustomRest")}}</option>
+							</select>
+							<p class="form-text">{{tx("meilisearch:admin.semanticSearchProviderHelp")}}</p>
+						</div>
+						<div class="mb-3" data-semantic-field="apiKey">
+							<label class="form-label" for="semanticSearchApiKey">{{tx("meilisearch:admin.semanticSearchApiKey")}}</label>
+							<input type="password" id="semanticSearchApiKey" name="semanticSearchApiKey" title="API Key" class="form-control" placeholder="*****">
+						</div>
+						<div class="mb-3" data-semantic-field="model">
+							<label class="form-label" for="semanticSearchModel">{{tx("meilisearch:admin.semanticSearchModel")}}</label>
+							<input type="text" id="semanticSearchModel" name="semanticSearchModel" title="Model" class="form-control" list="semanticSearchModelList" autocomplete="off">
+							<datalist id="semanticSearchModelList"></datalist>
+							<p class="form-text">{{tx("meilisearch:admin.semanticSearchModelHelp")}}</p>
+						</div>
+						<div class="mb-3" data-semantic-field="url">
+							<label class="form-label" for="semanticSearchUrl">{{tx("meilisearch:admin.semanticSearchUrl")}}</label>
+							<input type="text" id="semanticSearchUrl" name="semanticSearchUrl" title="URL" class="form-control">
+							<p class="form-text">{{tx("meilisearch:admin.semanticSearchUrlHelp")}}</p>
+						</div>
+						<div class="mb-3">
+							<label class="form-label" for="semanticSearchDimensions">{{tx("meilisearch:admin.semanticSearchDimensions")}}</label>
+							<input type="number" id="semanticSearchDimensions" name="semanticSearchDimensions" title="Dimensions" class="form-control" min="1">
+							<p class="form-text">{{tx("meilisearch:admin.semanticSearchDimensionsHelp")}}</p>
+						</div>
+						<div class="mb-3" data-semantic-field="rest">
+							<label class="form-label" for="semanticSearchRestRequest">{{tx("meilisearch:admin.semanticSearchRestRequest")}}</label>
+							<textarea id="semanticSearchRestRequest" name="semanticSearchRestRequest" title="Request template" class="form-control" rows="3"></textarea>
+						</div>
+						<div class="mb-3" data-semantic-field="rest">
+							<label class="form-label" for="semanticSearchRestResponse">{{tx("meilisearch:admin.semanticSearchRestResponse")}}</label>
+							<textarea id="semanticSearchRestResponse" name="semanticSearchRestResponse" title="Response template" class="form-control" rows="3"></textarea>
+							<p class="form-text">{{tx("meilisearch:admin.semanticSearchRestHelp")}}</p>
+						</div>
+						<div class="mb-3">
+							<label class="form-label" for="semanticSearchRatio">{{tx("meilisearch:admin.semanticSearchRatio")}}: <span id="semanticSearchRatioValue">0.5</span></label>
+							<input type="range" id="semanticSearchRatio" name="semanticSearchRatio" title="Semantic ratio" class="form-range" min="0" max="1" step="0.05">
+							<p class="form-text">{{tx("meilisearch:admin.semanticSearchRatioHelp")}}</p>
+						</div>
+						<div class="mb-3">
+							<label class="form-label" for="semanticSearchScoreThreshold">{{tx("meilisearch:admin.semanticSearchScoreThreshold")}}: <span id="semanticSearchScoreThresholdValue">0.20</span></label>
+							<input type="range" id="semanticSearchScoreThreshold" name="semanticSearchScoreThreshold" title="Minimum relevance score" class="form-range" min="0" max="1" step="0.05">
+							<p class="form-text">{{tx("meilisearch:admin.semanticSearchScoreThresholdHelp")}}</p>
+						</div>
 					</div>
 				</div>
 
