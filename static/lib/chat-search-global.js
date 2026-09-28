@@ -147,9 +147,11 @@ $(document).ready(function () {
 		const translator = await app.require('translator');
 
 		if (!query) {
-			resultsContainer.hide();
+			++searchSeq;
+			resultsContainer.hide().empty();
 			window.chatSearchState.isOpen = false;
 			window.chatSearchState.resultsHtml = '';
+			window.chatSearchState.lastScroll = 0;
 			return;
 		}
 
@@ -165,12 +167,14 @@ $(document).ready(function () {
 			if (seq !== searchSeq) return;
 			if (err) {
 				const errorLabel = await translator.translateKey('meilisearch:chatSearch.client.error');
+				if (seq !== searchSeq) return;
 				const errorHtml = '<div class="alert alert-danger" style="margin:5px;">' + errorLabel + '</div>';
 				resultsContainer.html(errorHtml);
 				return;
 			}
 			if (!messages || messages.length === 0) {
 				const noResultsLabel = await translator.translateKey('meilisearch:chatSearch.client.no-results');
+				if (seq !== searchSeq) return;
 				const noResHtml = '<div class="text-center" style="padding:10px; color: var(--bs-secondary-color);">' + noResultsLabel + '</div>';
 				resultsContainer.html(noResHtml);
 				window.chatSearchState.resultsHtml = noResHtml;
@@ -211,6 +215,7 @@ $(document).ready(function () {
 			});
 
 			const html = await app.parseAndTranslate('client/partials/chats/search-result', { messages: preparedMessages });
+			if (seq !== searchSeq) return;
 			resultsContainer.html(html);
 
 			if ($.fn.timeago) {
@@ -231,7 +236,7 @@ $(document).ready(function () {
 		}
 		if (!currentRoomId) return;
 		$('.search-result').removeClass('active');
-		const activeItem = $('.search-result[data-roomid="' + currentRoomId + '"]');
+		const activeItem = $('.search-result[data-search-roomid="' + currentRoomId + '"]');
 		activeItem.addClass('active');
 	}
 });
