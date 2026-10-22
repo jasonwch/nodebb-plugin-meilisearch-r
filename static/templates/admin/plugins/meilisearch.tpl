@@ -66,8 +66,37 @@
 								<span>{{lastReindexResult.skippedOrphanMessages}}</span>
 							</div>
 							{{{ end }}}
+							{{{ if lastReindexResult.skippedOversized }}}
+							<div class="col-6">
+								<strong>{{tx("meilisearch:admin.lastReindexSkippedOversized")}}</strong><br>
+								<span>{{lastReindexResult.skippedOversized}}</span>
+							</div>
+							{{{ end }}}
+							{{{ if lastReindexResult.skippedMissingTopics }}}
+							<div class="col-6">
+								<strong>{{tx("meilisearch:admin.lastReindexSkippedMissing")}}</strong><br>
+								<span>{{lastReindexResult.skippedMissingTopics}}/{{lastReindexResult.skippedMissingPosts}}/{{lastReindexResult.skippedMissingMessages}}</span>
+							</div>
+							{{{ end }}}
+							{{{ if lastReindexResult.skippedScheduledTopics }}}
+							<div class="col-6">
+								<strong>{{tx("meilisearch:admin.lastReindexSkippedScheduled")}}</strong><br>
+								<span>{{lastReindexResult.skippedScheduledTopics}}/{{lastReindexResult.skippedScheduledPosts}}</span>
+							</div>
+							{{{ end }}}
 						</div>
 
+						{{{ if lastReindexResult.verification }}}
+						<p class="mb-0">
+							<strong>{{tx("meilisearch:admin.lastReindexVerification")}}:</strong>
+							{{{ if lastReindexResult.verification.isVerified }}}<span class="badge bg-success">{{tx("meilisearch:admin.verifyOk")}}</span>
+							{{{ else }}}<span class="badge bg-warning text-dark">{{tx("meilisearch:admin.verifyIssues")}}</span>{{{ end }}}
+							&nbsp;<span data-finished-at="{lastReindexResult.verification.checkedAt}">&mdash;</span>
+						</p>
+						{{{ if verificationSummary }}}
+							<p class="mb-0 text-muted">{{verificationSummary}}</p>
+						{{{ end }}}
+						{{{ end }}}
 						{{{ if lastReindexResult.error }}}
 						<div class="text-danger">
 							<strong>{{tx("meilisearch:admin.lastReindexError")}}:</strong> {lastReindexResult.error}
@@ -114,6 +143,13 @@
 						<div id="message-reindex-progress" class="progress-bar reindex-progress-bar" role="progressbar" aria-valuenow="{indexing.message_progress.current}" aria-valuemin="0" aria-valuemax="{indexing.message_progress.total}" style="width: {{{ if messagePercent }}}{messagePercent}%{{{ else }}}0%{{{ end }}};">
 							{indexing.message_progress.current}/{indexing.message_progress.total}
 						</div>
+					</div>
+					<div id="meili-progress-block" style="display:none;">
+						<h6 class="text-center">{{tx("meilisearch:admin.reindexMeiliProgress")}} <span id="meili-reindex-progress-text">0/0</span></h6>
+						<div class="progress mb-3">
+							<div id="meili-reindex-progress" class="progress-bar reindex-progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="0" style="width: 0%;"></div>
+						</div>
+						<p class="form-text text-center" id="meili-verify-status" style="display:none;"></p>
 					</div>
 				</div>
 			</div>

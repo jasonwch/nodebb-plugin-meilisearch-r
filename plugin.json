@@ -74,6 +74,10 @@
 			"method": "onTopicMerge"
 		},
 		{
+			"hook": "action:topic.fork",
+			"method": "indexTopic"
+		},
+		{
 			"hook": "action:topic.delete",
 			"method": "deindexTopic"
 		},

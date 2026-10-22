@@ -42,15 +42,25 @@ define('admin/plugins/meilisearch', [
 				`${Number(data.post_progress.current) || 0}/${Number(data.post_progress.total) || 0}`;
 			document.getElementById('message-reindex-progress-text').innerText =
 				`${Number(data.message_progress.current) || 0}/${Number(data.message_progress.total) || 0}`;
+
+			updateMeiliProgress(data.meili_progress);
 		} else {
 			progressBarContainers.forEach((container) => {
 				container.classList.add('hidden');
 			});
 		}
+		const meili = data.meili_progress;
+		// "Complete" now means the Meilisearch-side task queue drained too (Phase 2),
+		// not just that NodeBB finished enqueueing (Phase 1). meili_progress.total stays
+		// null while Phase 1 runs and drained stays false, so the banner waits for the
+		// drain in every case. (The nothing-enqueued path sets drained: true
+		// explicitly in lib/reindex.js — never rely on total being null/0 here.)
+		const meiliDrained = !meili || meili.drained;
 		if (
 			!data.running && data.topic_progress.total === data.topic_progress.current &&
 			data.post_progress.total === data.post_progress.current &&
 			data.message_progress.total === data.message_progress.current &&
+			meiliDrained &&
 			!reindexCompleteShown
 		) {
 			reindexCompleteShown = true;
@@ -65,6 +75,71 @@ define('admin/plugins/meilisearch', [
 					container.classList.add('hidden');
 				});
 			}, 60000);
+		}
+	}
+
+	// Fourth progress bar: Meilisearch draining the task queue this run enqueued
+	// (current/total are TASK counts, not documents). Hidden while Phase 1 runs
+	// (total still null); after the drain it carries the post-index verification
+	// verdict, e.g. "8 failed task(s) ..." or "✓ <translated success message>".
+	function updateMeiliProgress(meili) {
+		const block = document.getElementById('meili-progress-block');
+		const verifyEl = document.getElementById('meili-verify-status');
+		if (!block) return;
+		if (meili && Number(meili.total) > 0) {
+			block.style.display = '';
+			const meiliProgressBar = document.getElementById('meili-reindex-progress');
+			setProgress(meiliProgressBar, meili.current, meili.total);
+			document.getElementById('meili-reindex-progress-text').innerText =
+				`${Number(meili.current) || 0}/${Number(meili.total) || 0}${meili.drained ? ' ✓' : ''}`;
+			if (verifyEl) {
+				if (meili.verification) {
+					const verified = meili.verification.status === 'verified';
+					verifyEl.style.display = '';
+					verifyEl.classList.toggle('text-danger', meili.verification.status === 'problems');
+					verifyEl.classList.toggle('text-muted', meili.verification.status === 'inconclusive');
+					verifyEl.classList.toggle('text-success', verified);
+					if (meili.verification.summaryKey) {
+						// Per-admin translation of the first problem (key + %n args);
+						// the persisted English summary is the fallback. Uses the
+						// STATIC translateKey — the module has no create() method.
+						translator.translateKey(
+							meili.verification.summaryKey,
+							meili.verification.summaryArgs || [],
+							translator.getLanguage(),
+						).then(translated => {
+							verifyEl.innerText = translated === meili.verification.summaryKey ?
+								(meili.verification.summary || '') : translated;
+						}).catch(() => {
+							verifyEl.innerText = meili.verification.summary || '';
+						});
+					} else if (meili.verification.summary) {
+						verifyEl.innerText = meili.verification.summary;
+					} else if (verified) {
+						// Success verdict: a bare check mark read like a stray glyph
+						// with no explanation — pair it with a translated success
+						// message. Missing keys return the key string itself (same
+						// pattern as above), so detect that and fall back to English.
+						translator.translateKey('meilisearch:admin.verifyPassed', [], translator.getLanguage())
+							.then(translated => {
+								verifyEl.innerText = translated === 'meilisearch:admin.verifyPassed' ?
+									'✓ Verified — all indexed counts match' : `✓ ${translated}`;
+							})
+							.catch(() => {
+								verifyEl.innerText = '✓ Verified — all indexed counts match';
+							});
+					} else {
+						verifyEl.style.display = 'none';
+					}
+				} else {
+					verifyEl.style.display = 'none';
+				}
+			}
+		} else {
+			block.style.display = 'none';
+			if (verifyEl) {
+				verifyEl.style.display = 'none';
+			}
 		}
 	}
 
@@ -133,13 +208,16 @@ define('admin/plugins/meilisearch', [
 		return SEMANTIC_COST_FIELDS.some(id => $(`#${id}`).val() !== semanticSnapshot.fields[id]);
 	}
 
-	// Mirrors lib/embedder.js validateEmbedderConfig. Reads form values via jQuery
-	// selectors (not nodebb.require — runs in browser) and applies the same per-provider
-	// rules: openAi requires apiKey iff url blank; huggingFace/ollama need nothing;
-	// rest requires url, warns on non-empty non-JSON request/response templates.
+	// Mirrors lib/embedder.js validateEmbedderConfig (same translation keys). Reads
+	// form values via jQuery selectors (not nodebb.require — runs in browser) and
+	// applies the same per-provider rules: openAi requires apiKey iff url blank;
+	// huggingFace/ollama need nothing; rest requires url, warns on non-empty
+	// non-JSON request/response templates.
 	//
-	// Returns null if valid, or an error string (will be displayed via alerts.alert).
-	function validateEmbedderForm() {
+	// Returns null if valid, or a translated error string. Comma-safe interpolation
+	// via translator.translateKey (not inline [[key, args]] tokens, which mis-split
+	// when an arg contains a comma).
+	async function validateEmbedderForm() {
 		const enabled = $('#semanticSearchEnabled').is(':checked');
 		if (!enabled) return null;
 		const provider = $('#semanticSearchProvider').val();
@@ -165,17 +243,36 @@ define('admin/plugins/meilisearch', [
 				break;
 			case 'rest':
 				if (!url) missing.push('url');
-				if (restRequest.trim() && !isValidJson(restRequest)) invalid.push('request');
-				if (restResponse.trim() && !isValidJson(restResponse)) invalid.push('response');
+				if (restRequest && !isValidJson(restRequest)) invalid.push('request');
+				if (restResponse && !isValidJson(restResponse)) invalid.push('response');
 				break;
 			default:
-				return `Unknown provider: ${provider}`;
+				return await translateProblem('embedderUnknownProvider', [provider], `Unknown provider: ${provider}`);
 		}
 		if (!missing.length && !invalid.length) return null;
-		const parts = [];
-		if (missing.length) parts.push(`Required field(s) missing for "${provider}" provider: ${missing.join(', ')}`);
-		if (invalid.length) parts.push(`Invalid JSON in field(s): ${invalid.join(', ')}`);
-		return parts.join('; ');
+		if (missing.length && invalid.length) {
+			return await translateProblem('embedderMissingAndInvalid',
+				[provider, missing.join(', '), invalid.join(', ')],
+				`Required field(s) missing for "${provider}" provider: ${missing.join(', ')}; invalid JSON in field(s): ${invalid.join(', ')}`);
+		}
+		if (missing.length) {
+			return await translateProblem('embedderMissingFields',
+				[provider, missing.join(', ')],
+				`Required field(s) missing for "${provider}" provider: ${missing.join(', ')}`);
+		}
+		return await translateProblem('embedderInvalidJson',
+			[invalid.join(', ')],
+			`Invalid JSON in field(s): ${invalid.join(', ')}`);
+	}
+
+	async function translateProblem(key, args, fallback) {
+		try {
+			const txKey = `meilisearch:admin.${key}`;
+			const translated = await translator.translateKey(txKey, args, translator.getLanguage());
+			return translated === txKey ? (fallback || key) : translated;
+		} catch (err) {
+			return fallback || key;
+		}
 	}
 
 	function isValidJson(str) {
@@ -209,14 +306,66 @@ define('admin/plugins/meilisearch', [
 	// Real-time server-side failures (embedder push rejected, search degraded because the
 	// configured embedder/endpoint is broken, ...) - surfaced here instead of only in the
 	// server log, since admins reading the ACP won't necessarily be tailing logs.
+	// Bodies translate per-admin (messageKey + %n args from the language file) when the
+	// payload carries a key; raw English message otherwise (legacy/fallback path).
+	//
+	// F4: dedupe identical toasts within a 60s window. The SERVER-side throttle
+	// (lib/alerts.js) is per-process, so a clustered NodeBB emits up to one identical
+	// toast per worker per minute for the same failure — this collapses them back to
+	// one per minute as seen by the admin, without touching any other alert type.
+	const alertLastShownAt = new Map();
+	const ALERT_DEDUPE_MS = 60 * 1000;
 	function onAlert(data) {
 		if (!data) return;
+		const dedupeKey = JSON.stringify([
+			data.titleKey || '',
+			data.messageKey || '',
+			data.messageArgs || [],
+			data.message || '',
+		]);
+		const now = Date.now();
+		const last = alertLastShownAt.get(dedupeKey) || 0;
+		if (now - last < ALERT_DEDUPE_MS) return;
+		alertLastShownAt.set(dedupeKey, now);
+		// opportunistic prune so the map cannot grow without bound
+		if (alertLastShownAt.size > 128) {
+			for (const [k, ts] of alertLastShownAt) {
+				if (now - ts >= ALERT_DEDUPE_MS) alertLastShownAt.delete(k);
+			}
+		}
+		if (data.messageKey) {
+			translateAlertMessage(data).then(message => fireAlert(data, message));
+		} else {
+			fireAlert(data, data.message || '');
+		}
+	}
+
+	function fireAlert(data, message) {
 		alerts.alert({
 			type: data.type || 'danger',
 			title: data.titleKey || '[[meilisearch:admin.meilisearchError]]',
-			message: data.message || '',
+			message: message,
 			timeout: 15000,
 		});
+	}
+
+	// NodeBB translator pattern: language-file placeholders (%1, %2, ...) filled from
+	// messageArgs; the English message is the backup when a translation is missing.
+	// Uses the STATIC translateKey(token, args, language) — the module does NOT have
+	// a create() method (that's on translator.Translator, the class, not the wrapper).
+	// When a key is missing, the static API returns the key string itself, so we
+	// detect that and fall back to the English message.
+	async function translateAlertMessage(data) {
+		try {
+			const translated = await translator.translateKey(
+				data.messageKey,
+				data.messageArgs || [],
+				translator.getLanguage(),
+			);
+			return translated === data.messageKey ? (data.message || '') : translated;
+		} catch (err) {
+			return data.message || '';
+		}
 	}
 
 	function toggleLimitNotice() {
@@ -293,9 +442,23 @@ define('admin/plugins/meilisearch', [
 		});
 	}
 
-	function saveSettings() {
+	async function saveSettings() {
+		// (F10 mitigation) The server now honors a CLEARED host field (previously the
+		// old stored value was silently resurrected) — block an obviously-empty host
+		// client-side so the admin cannot save a connection that cannot work.
+		const hostValue = ($('#host').val() || '').trim();
+		if (!hostValue) {
+			alerts.alert({
+				type: 'danger',
+				alert_id: 'meilisearch-host-required',
+				title: '[[meilisearch:admin.meilisearchError]]',
+				message: '[[meilisearch:admin.hostRequired]]',
+				timeout: 10000,
+			});
+			return;
+		}
 		// (A) Pre-flight validation: block save on missing required fields (config invalid).
-		const validationError = validateEmbedderForm();
+		const validationError = await validateEmbedderForm();
 		if (validationError) {
 			alerts.alert({
 				type: 'danger',
