@@ -192,17 +192,25 @@ $(document).ready(function () {
 					try { isoTime = new Date(ts).toISOString(); } catch (e) { isoTime = ''; }
 				}
 
-				var mid = parseInt(msg.mid, 10);
 				var roomId = parseInt(msg.roomId, 10);
 				var rank = parseInt(msg.rank, 10);
-				var hasRank = rank >= 0 && app.user && app.user.userslug;
-				var chatLink = hasRank
-					? (config.relative_path || '') + '/user/' + app.user.userslug + '/chats/' + roomId + '/' + (rank + 1)
-					: (config.relative_path || '') + '/message/' + mid;
+				var userslug = (app.user && app.user.userslug) || '';
+				// Deep links: /user/<slug>/chats/<roomId>[/<index>] (primary, no redirect).
+				// Rank null means the mid has already left chat:room:<rid>:mids (purged,
+				// or a race between the Meili hit and the rank fetch) — core's
+				// /message/:mid redirect performs the SAME zset-rank check that just
+				// returned null, so a mid deep-link is a guaranteed 404; link to the
+				// room instead, index only when the rank is known. Without a session
+				// slug (partial boot), core's slugless /chats/<roomId> redirect
+				// (src/routes/user.js) resolves the current user's slug server-side.
+				var chatLink = (config.relative_path || '') +
+					(userslug ? '/user/' + userslug + '/chats/' : '/chats/') +
+					roomId +
+					(rank >= 0 ? '/' + (rank + 1) : '');
 				var senderName = (msg.user && msg.user.username) ? msg.user.username : unknownUserLabel;
 
 				return {
-					mid: mid,
+					mid: msg.mid,
 					roomId: roomId,
 					chatLink: chatLink,
 					roomName: msg.roomName || '',

@@ -6,7 +6,13 @@
 
 	var _hooks = null;
 
-	var PREFIX_ONLY_RE = /^in:topic-\d+\s*$/;
+	// Operator-only quick-search (no term after the prefix) short-circuits to an empty
+	// result. The server returns that same empty set either way — the plugin's
+	// Topics.search override yields [] for an empty term, and a bare prefix without a
+	// trailing space never matches core's in-topic regex — so this only saves a wasted
+	// /api/search round-trip. \S+ covers federated UUID tids, mirroring core 4.16.4's
+	// widened regex (in:topic-([\d]+) → in:topic-([\S]+), PR #15043).
+	var PREFIX_ONLY_RE = /^in:topic-\S+\s*$/;
 	var SEARCH_API_URL_RE = /\/api\/search(\?|$)/;
 
 	function isComposerQuickSearch(options) {
